@@ -30,11 +30,19 @@ class SetPoint:
         self.battery_empty_ts=None
         self.mp2_standby=False
         self.mp2_device_state_name=None
+        self.mppt_topic=None
+        self.mppt_power=0
+        self.last_mppt_power=None
         
 
     def update_bms_soc(self, bms_soc):
         self.bms_soc=bms_soc
         self.last_bms_soc_data=time.time()
+
+    def update_mppt(self, data):
+        self.mppt_power=data.get('PPV',0)
+        self.last_mppt_power=time.time()
+        logging.info(f"mppt power: {self.mppt_power}")
 
     def get_max_charge(self):
         return float(self.config['VICTRON']['MAX_CHARGE'])
@@ -44,6 +52,11 @@ class SetPoint:
         min_soc=float(self.config['VICTRON']['MIN_SOC'])
 
         max_invert2=math.tanh(((self.bms_soc-min_soc) / 10))*max_invert
+
+        if self.last_mppt_power and time.time()-self.last_mppt_power < 20:  # we have current value
+            if self.mppt_power-160 > max_invert2:
+                logging.debug(f"increate max_invert2 to {max_invert2} because of mppt power {self.mppt_power}")
+                max_invert2=self.mppt_power - 160
 
         return max(max_invert2, 300)       # mindesten 300 Watt Leistung
 
@@ -185,6 +198,8 @@ def on_message(client, set_point_class, message):
         elif message.topic == set_point_class.config['BMS1']['topic']:
             logging.info(f"update from bms1: soc: {data['soc']}, voltage: {data['voltage']}")
             set_point_class.update_bms_soc(data['soc'])
+        elif message.topic == client.mpp_topic:
+            set_point_class.update_mppt(data)
         else:
             logging.info(f"unknown topic {message.topic}")
             logging.info(f"not {set_point_class.config['SMARTMETER']['topic']}")
@@ -237,6 +252,11 @@ def main():
     client.subscribe(config['SMARTMETER']['topic'])
     logging.info(f"subscibe {config['BMS1']['topic']}")
     client.subscribe(config['BMS1']['topic'])
+
+    if config['VICTRON'].get('mppt_topic'):
+        client.mpp_topic=config['VICTRON']['mppt_topic']
+        client.subscribe(config['VICTRON']['mppt_topic'])
+
     set_point_class=SetPoint(client, config)
     client.user_data_set(set_point_class)
 
