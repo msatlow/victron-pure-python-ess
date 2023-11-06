@@ -8,6 +8,11 @@ import time
 import configparser
 import traceback
 import argparse
+import math
+import logging
+import logging.handlers
+import sys
+import signal
 
 MAX_VICTRON_RAMP=400
 
@@ -22,25 +27,81 @@ class SetPoint:
         self.last_bms_soc_data=None
         self.mqtt_client=mqtt_client
         self.config=config
+        self.battery_empty_ts=None
+        self.mp2_standby=False
+        self.mp2_device_state_name=None
+        
 
     def update_bms_soc(self, bms_soc):
         self.bms_soc=bms_soc
         self.last_bms_soc_data=time.time()
 
+    def get_max_charge(self):
+        return float(self.config['VICTRON']['MAX_CHARGE'])
+
+    def get_max_invert(self):
+        max_invert=float(self.config['VICTRON']['MAX_INVERT'])
+        min_soc=float(self.config['VICTRON']['MIN_SOC'])
+
+        max_invert2=math.tanh(((self.bms_soc-min_soc) / 10))*max_invert
+
+        return max(max_invert2, 300)       # mindesten 300 Watt Leistung
+
+
+    def set_mp2_setpoint(self, setpoint, standby=False):
+
+        if standby:
+            if not self.battery_empty_ts:
+                self.battery_empty_ts=time.time()
+
+            if self.battery_empty_ts and time.time()-self.battery_empty_ts > 300:
+                logging.warning("battery empty for 5 minutes, go to standby")
+                self.mp2.sleep()
+                self.mp2.command(0)
+                self.mp2_standby=True
+                self.battery_empty_ts=None
+            # else:
+            #     self.mp2.command(0)               # required???
+
+            
+        else:
+            if self.mp2_standby:
+                logging.warning("wakeup mp2 from standby")
+                self.mp2.wakeup()
+                self.mp2_standby=False
+            
+            if self.mp2_device_state_name=='off':
+                logging.warning("mp2 is off, wakeup")
+                self.mp2.wakeup()
+
+            self.mp2.command(int(setpoint))
+
+        if setpoint>0:
+            self.mp2_charge=True
+            self.mp2_invert=False
+        elif setpoint<0:
+            self.mp2_charge=False
+            self.mp2_invert=True
+        else:
+            self.mp2_charge=False
+            self.mp2_invert=False
+
+
 
     def update_sm_power(self, sm_power):
         # multiplus2
         if not self.mp2:
-            print("no mp2")
+            logging.error("no mp2")
             return
         self.mp2.update()
-        print(self.mp2.data)
+        logging.info(self.mp2.data)
         data=self.mp2.data.copy()
+        self.mp2_device_state_name=data.get('device_state_name',None)
 
 
-        if not self.last_bms_soc_data or time.time()-self.last_bms_soc_data > 300:  # last bms data older than 5 minutes
+        if not self.last_bms_soc_data or time.time()-self.last_bms_soc_data > 60:  # last bms data older than 5 minutes
             self.bms_soc=data.get('soc',0)
-            print(f"no bms data, use mp2 data {self.bms_soc}")
+            logging.debug(f"no bms data, use mp2 data {self.bms_soc}")
 
         self.mp2_power_old=self.mp2_power
     #                mp2_power=pid(sm_power)
@@ -54,11 +115,12 @@ class SetPoint:
             self.mp2_power=self.mp2_power_old-MAX_VICTRON_RAMP
 
 
-        print(f"mp2_power={self.mp2_power}, old: {self.mp2_power_old} sum: {sm_power}")
-        if self.mp2_power>float(self.config['VICTRON']['MAX_CHARGE']):
-            self.mp2_power=float(self.config['VICTRON']['MAX_CHARGE'])
-        if self.mp2_power< -1*float(self.config['VICTRON']['MAX_INVERT']):
-            self.mp2_power=-1*float(self.config['VICTRON']['MAX_INVERT'])
+        logging.info(f"mp2_power={self.mp2_power}, old: {self.mp2_power_old} sum: {sm_power}")
+        
+        if self.mp2_power>self.get_max_charge():
+            self.mp2_power=self.get_max_charge()
+        if self.mp2_power< -1* self.get_max_invert():
+            self.mp2_power=-1* self.get_max_invert()
 
         data['mp2_power_request']=self.mp2_power
         if data.get('inv_p',0) >=0:
@@ -71,86 +133,109 @@ class SetPoint:
         bat_u=data.get('bat_u',0)
 
         rc=self.mqtt_client.publish(self.config['VICTRON']['topic'], json.dumps(data))
-        print(rc)
+        logging.debug(rc)
 
 
 #        batu_hyst=52.3 - 0.5 if self.mp2_invert else 0
 #        if self.bms_soc < 21 and data.get('bat_u',0)>batu_hyst:
-#            print(f"soc {self.bms_soc} too low but battery full {data.get('bat_u')}")
+#            logging.info(f"soc {self.bms_soc} too low but battery full {data.get('bat_u')}")
 #            self.bms_soc=21
 
-        print(f"mp2_power={self.mp2_power}, soc: {self.bms_soc}, bat_u: {bat_u}")
+        logging.info(f"mp2_power={self.mp2_power}, soc: {self.bms_soc}, bat_u: {bat_u}")
         if self.mp2_power>0:
             max_soc_hyst=float(self.config['VICTRON']['MAX_SOC']) + (float(self.config['VICTRON']['SOC_HYSTERESIS']) if self.mp2_charge else 0)
             if self.bms_soc < max_soc_hyst:
-                print(f"wakeup and set power {self.mp2_power}")
-                self.mp2.wakeup()
+                logging.info(f"wakeup and set power {self.mp2_power}")
             #  mp2.vebus.set_power(mp2_power)
-                self.mp2.command(int(self.mp2_power))
-                self.mp2_charge=True
-                self.mp2_invert=False
+                self.set_mp2_setpoint(int(self.mp2_power), standby=False)
+                # self.mp2_charge=True
+                # self.mp2_invert=False
             else:
-                print(f"battery full not {self.bms_soc} < {max_soc_hyst}")
-                self.mp2.command(0)
-                self.mp2_charge=False
-                self.mp2_invert=False
+                logging.info(f"battery full not {self.bms_soc} < {max_soc_hyst}")
+                self.set_mp2_setpoint(0, standby=False)
+                # self.mp2_charge=False
+                # self.mp2_invert=False
         else:
             min_soc_hyst = float(self.config['VICTRON']['MIN_SOC']) - (float(self.config['VICTRON']['SOC_HYSTERESIS']) if self.mp2_invert else 0)
             if self.bms_soc > min_soc_hyst :
-                print(f"set power {self.mp2_power}")
+                logging.info(f"set power {self.mp2_power}")
 
-                self.mp2.command(int(self.mp2_power))
-                self.mp2_charge=False
-                self.mp2_invert=True
+                self.set_mp2_setpoint(int(self.mp2_power))
+                # self.mp2_charge=False
+                # self.mp2_invert=True
             else:
-                print(f"battery empty not {self.bms_soc} > {min_soc_hyst}")
-                self.mp2.command(0)
-                self.mp2_charge=False
-                self.mp2_invert=False
+                logging.info(f"battery empty not {self.bms_soc} > {min_soc_hyst}")
+                self.set_mp2_setpoint(0, True)
+                # self.mp2_charge=False
+                # self.mp2_invert=False
 
 
+
+ 
 
 
 def on_message(client, set_point_class, message):
-    print(f"message received topic: {message.topic} {str(message.payload.decode('utf-8'))}")
+    logging.debug(f"message received topic: {message.topic} {str(message.payload.decode('utf-8'))}")
     try:
         data=json.loads(str(message.payload.decode("utf-8")))
 
         if message.topic == set_point_class.config['SMARTMETER']['topic']:
-            print(f"update from smartmeter: {data['power']}")
+            logging.debug(f"update from smartmeter: {data['power']}")
             set_point_class.update_sm_power(data['power']*-1)
         elif message.topic == set_point_class.config['BMS1']['topic']:
-            print(f"update from bms1: soc: {data['soc']}, voltage: {data['voltage']}")
+            logging.info(f"update from bms1: soc: {data['soc']}, voltage: {data['voltage']}")
             set_point_class.update_bms_soc(data['soc'])
         else:
-            print(f"unknown topic {message.topic}")
-            print(f"not {set_point_class.config['SMARTMETER']['topic']}")
+            logging.info(f"unknown topic {message.topic}")
+            logging.info(f"not {set_point_class.config['SMARTMETER']['topic']}")
     except Exception as ex:
-        print(ex)
-        traceback.print_exc()
+        logging.error(ex, exc_info=True)
 
+def read_config():
+    global config
+    global config_file
+    if not config:
+        config = configparser.ConfigParser()
+    config.read(config_file)
+
+def signal_hub_handler(signal, frame):
+    logging.warning("got hub signal")
+    read_config()
+
+
+
+# global variables
+config=None
+config_file=None
 
 # main program
 def main():
+    global config_file
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s', stream=sys.stdout)
+    sysloghandler=logging.handlers.SysLogHandler(address='/dev/log')
+    sysloghandler.setLevel(logging.WARNING)
+    logging.getLogger().addHandler(sysloghandler)
+
+    logging.warning("start update_setpoint.py")
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", help="config.ini file", default="config.ini")
     args = parser.parse_args()
+    config_file=args.config
 
-
-    config = configparser.ConfigParser()
-    config.read(args.config)
+    read_config()
 
     client = mqtt.Client("UPDATE_SETPOINT")
     if config['MQTT'].get('user'):
-        print("mqtt password given")
+        logging.info("mqtt password given")
         client.username_pw_set(config['MQTT']['user'], config['MQTT']['password'])
     client.on_message = on_message
-    print(f"connect to mqtt server {config['MQTT']['host']}")
+
+    logging.info(f"connect to mqtt server {config['MQTT']['host']}")
     client.connect(config['MQTT']['host'], int(config['MQTT']['port']))
-    print(f"subscribe {config['SMARTMETER']['topic']}")
+    logging.info(f"subscribe {config['SMARTMETER']['topic']}")
     client.subscribe(config['SMARTMETER']['topic'])
-    print(f"subscibe {config['BMS1']['topic']}")
+    logging.info(f"subscibe {config['BMS1']['topic']}")
     client.subscribe(config['BMS1']['topic'])
     set_point_class=SetPoint(client, config)
     client.user_data_set(set_point_class)
@@ -158,9 +243,11 @@ def main():
 
     #client.subscribe("#")
 
-    print("start loop")
+    signal.signal(signal.SIGHUP, signal_hub_handler)
+
+
+    logging.info("start loop")
     client.loop_forever()
 
 if __name__ == '__main__':
     main()
-
