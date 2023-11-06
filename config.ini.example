@@ -1,0 +1,41 @@
+[MQTT]
+host = 127.0.0.1
+port = 1883
+#user = "mosquitto_username"
+#password = "mosquitto_password"
+
+
+[SMARTMETER]
+serial_port=/dev/serial/by-path/xxxx
+serial_baudrate=115200
+topic=tele/smartmeter/state
+country_code=KN
+# aes key from provider
+aes_key=xxxx
+
+[BMS1]
+serial_port=/dev/serial/by-id/xxxx
+serial_baudrate=19200
+topic=tele/bms1/state
+
+[VICTRON]
+serial_port=/dev/serial/by-id/usb-VictronEnergy_MK3-USB_Interface_xxx 
+topic=tele/victron/state
+
+SOC_HYSTERESIS=0.5
+MAX_CHARGE=300
+MAX_INVERT=2500
+MIN_SOC=35
+MAX_SOC=98
+
+# e.g. topic from Victron MPPT 450
+mppt_topic=tele/mppt1/state
+
+
+# e.g. Victron MPPT RS 450
+[MPPT]
+serial_port=/dev/serial/by-path/xxxx
+topic=tele/mppt1/state
+
+
+
