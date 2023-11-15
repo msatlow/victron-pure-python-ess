@@ -224,6 +224,18 @@ while 1:
             print(data)
             rc=client.publish(config['SMARTMETER']['TOPIC'], json.dumps(data))
             print(rc)
+            dspl = {"title": "Smartmeter",
+                    "color": 24555,
+                    "main": {"unit": "W",
+                        "PwrSM": data["power"]
+                        },
+                    "stand": {
+                        "unit": "KWh",
+                        "In": "{:.1f}".format(data["sum_in"]),
+                        "Out": "{:.1f}".format(data["sum_out"])
+                        }
+                    }
+            client.publish("display", json.dumps(dspl))
 
     except Exception as ex:
         print(ex)

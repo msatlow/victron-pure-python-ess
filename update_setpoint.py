@@ -99,6 +99,27 @@ class SetPoint:
             self.mp2_charge=False
             self.mp2_invert=False
 
+    def custom_update(self, data):
+        dspl = {"title": "Victron",
+            "color": 22142,
+            "main": {"unit": "%",
+                "Bat": data.get("soc")
+                },
+            "stand0": {
+                "unit": "",
+                "State": f"{data.get('state')}/{data.get('device_state_id')}",
+            },
+            "stand1": {
+                "unit": "W",
+                "Bat": "{:.1f}".format(data.get("bat_p", 0)),
+            },
+            "stand2": {
+                "unit": "A",
+                "Bat": "{:.1f}".format(data.get("bat_i", 0)),
+            }
+        }
+        self.mqtt_client.publish("display", json.dumps(dspl))
+        print(json.dumps(dspl))
 
 
     def update_sm_power(self, sm_power):
@@ -182,7 +203,10 @@ class SetPoint:
                 # self.mp2_charge=False
                 # self.mp2_invert=False
 
-
+        try:
+            self.custom_update(data)
+        except Exception as ex:
+            logging.warning(f"unable to call custom code, got {ex}", exc_info=True) 
 
  
 
