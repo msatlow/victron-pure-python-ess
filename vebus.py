@@ -267,6 +267,21 @@ class VEBus:
         except Exception as e:
             self.log.error("set_ess_power: power={} error={}".format(power, e))
             return False
+        
+    def reset_device(self, device=0):
+        data = struct.pack("<BB", 0x8, device)  # cmd, device_id (0=all devices)
+        self.send_frame('F', data)
+        logging.info("reset done")
+
+    def set_bol(self, iBat_discharge):
+
+        iBat_discharge_dA=int(iBat_discharge*10)
+        
+        data = struct.pack("<BBBh", 0x9, 0x03, 0x00, iBat_discharge_dA)  # cmd, device_id (0=all devices)
+        self.send_frame('F', data)
+        rx=self.receive_frame(b'\x07\x3c')
+        logging.info(f"set_bol done {rx}")
+
 
     def scan_ess_assistant(self):
         """
