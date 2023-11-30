@@ -282,6 +282,35 @@ class VEBus:
         rx=self.receive_frame(b'\x07\x3c')
         logging.info(f"set_bol done {rx}")
 
+    def set_ess_modules(self, disable_feed: bool, disable_charge: bool):
+        if self.serial is None:
+            self.open_port()  # open port
+
+        try:
+            ess_flag=0
+            if disable_charge:
+                ess_flag+=0x1
+            if disable_feed:
+                ess_flag+=0x2
+
+            data = struct.pack("<BBBh", 0x37, 0x00, self.ess_setpoint_ram_id+1, ess_flag)  # cmd, flags, id, power
+            self.send_frame('X', data)
+            rx = self.receive_frame([b'\x05\xFF\x58', b'\x03\xFF\x58'])  # two different answers are possible
+            if rx[3] == 0x87:
+                self.log.info("set_ess_modules to {}W done".format(ess_flag))
+                return True
+            else:
+                self.log.error("set_ess_modules to {}W done".format(ess_flag))
+
+#                raise Exception("invalid response")
+        except IOError:
+            self.serial = None
+            self.log.error("serial port failed")
+        except Exception as e:
+            self.log.error("set_ess_power: power={} error={}".format(power, e))
+            return False
+
+
 
     def scan_ess_assistant(self):
         """
