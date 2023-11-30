@@ -142,7 +142,11 @@ class SetPoint:
         self.mp2_power_old=self.mp2_power
     #                mp2_power=pid(sm_power)
 
-    #    self.mp2_power=int(self.mp2_power+(sm_power*0.3))
+        # target = 0
+        # target_delta = sm_power-target
+        # p_factor=0.1+0.2*math.tanh(abs(target_delta/50))
+        # self.mp2_power=int(self.mp2_power+(target_delta*p_factor))
+
         if abs(self.mp2_power)>100:
             self.mp2_power=int(self.mp2_power+(sm_power*0.3))
         else:
