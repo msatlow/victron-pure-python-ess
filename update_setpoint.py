@@ -13,6 +13,7 @@ import logging
 import logging.handlers
 import sys
 import signal
+import datetime
 
 MAX_VICTRON_RAMP=400
 
@@ -33,6 +34,7 @@ class SetPoint:
         self.mppt_topic=None
         self.mppt_power=0
         self.last_mppt_power=None
+        self.counter=0
         
 
     def update_bms_soc(self, bms_soc):
@@ -140,7 +142,12 @@ class SetPoint:
         self.mp2_power_old=self.mp2_power
     #                mp2_power=pid(sm_power)
 
-        self.mp2_power=int(self.mp2_power+(sm_power*0.3))
+    #    self.mp2_power=int(self.mp2_power+(sm_power*0.3))
+        if abs(self.mp2_power)>100:
+            self.mp2_power=int(self.mp2_power+(sm_power*0.3))
+        else:
+            self.mp2_power=int(self.mp2_power+(sm_power*0.1))
+
         
         # limit increase/decrease to 400W (MAX_VICTRON_RAMP)
         if self.mp2_power>self.mp2_power_old+MAX_VICTRON_RAMP:
@@ -208,7 +215,16 @@ class SetPoint:
         except Exception as ex:
             logging.warning(f"unable to call custom code, got {ex}", exc_info=True) 
 
- 
+        self.counter+=1
+
+        if self.counter > 10:
+            self.touch_file()
+            self.counter=0
+
+    def touch_file(self):
+        f = open("watchdog.txt", "w")
+        f.write(f"Watchdog on {datetime.datetime.now()}")
+        f.close()
 
 
 def on_message(client, set_point_class, message):
