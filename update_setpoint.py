@@ -170,6 +170,10 @@ class SetPoint:
         if self.mp2_power< -1* self.get_max_invert():
             self.mp2_power=-1* self.get_max_invert()
 
+        if self.mp2_standby and self.mp2_power>0 and self.mp2_power<50:
+            logging.info("mp2 is in standby, but power is less than 100W, keep standby")
+            self.mp2_power=0
+
         data['mp2_power_request']=self.mp2_power
         if data.get('inv_p',0) >=0:
             data['inv_p_in']=data.get('inv_p',0)
