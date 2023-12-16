@@ -68,7 +68,7 @@ class VEBus:
         except Exception as e:
             return None
 
-    def init_address(self):
+    def init_address(self, addr=0x00):
         """
         Init device address. With a single Multiplus on the bus the Address is 0x00
 
@@ -80,7 +80,6 @@ class VEBus:
         if self.serial is None:
             self.open_port()  # open port
 
-        addr = 0x00  # for addr in range(0, 3):
         try:
             self.send_frame('A', [0x01, addr])
             rx = self.receive_frame(b'\x04\xFF\x41')
@@ -132,7 +131,7 @@ class VEBus:
                 l.append(led_names[i])
         return l
 
-    def get_ac_info(self):
+    def get_ac_info(self, phase=1):
         """
         Get AC Info
 
@@ -148,9 +147,13 @@ class VEBus:
             self.open_port()  # open port
 
         try:
-            self.send_frame('F', [0x01])
-            rx = self.receive_frame(b'\x0F\x20')
+            self.send_frame('F', [phase])
+            rx = self.receive_generic_frame(0x20)
+            
+            logging.info(self.format_hex(rx))
+
             bf_factor, inv_factor, device_state_id, phase_info, mains_u, mains_i, inv_u, inv_i, mains_period = struct.unpack(
+#                "<BBxBBhhhhB", rx)
                 "<BBxBBhhhhB", rx[2:16])
 
             device_state_name = {0: 'down', 1: 'startup', 2: 'off', 3: 'slave', 4: 'invert_full', 5: 'invert_half',
@@ -158,6 +161,8 @@ class VEBus:
 
             r = {'device_state_id': device_state_id,
                  'device_state_name': device_state_name,
+                 'phase_info': phase_info,
+                 'mains_period': mains_period,
                  'mains_u': round(mains_u / 100, 2),
                  'mains_i': round(mains_i / 100, 2),
                  'inv_u': round(inv_u / 100, 2),
@@ -168,7 +173,7 @@ class VEBus:
             self.serial = None
             self.log.error("serial port failed")
         except Exception as e:
-            self.log.error("get_ac_info: {}".format(e))
+            self.log.error("get_ac_info: {}".format(e), exc_info=True)
             return None
 
     def send_snapshot_request(self):
@@ -197,7 +202,7 @@ class VEBus:
             self.log.error("send_snapshot_request: {}".format(e))
             return None
 
-    def read_snapshot(self):
+    def read_snapshot(self, phase=None):
         """
         007.987 TX: 03 FF 58 38 6E
                           X| 38                         0x38/CommandReadSnapShot
@@ -217,7 +222,10 @@ class VEBus:
             self.open_port()  # open port
 
         try:
-            self.send_frame('X', [0x38])
+            if phase:
+                self.send_frame('x', [0x38, phase])
+            else:
+                self.send_frame('X', [0x38])
             frame = self.receive_frame(b'\x0D\xFF\x58')
             if frame[3] != 0x99:
                 raise Exception('invalid response')
@@ -267,9 +275,92 @@ class VEBus:
         except Exception as e:
             self.log.error("set_ess_power: power={} error={}".format(power, e))
             return False
-        
+
+    def set_power_phase(self, power, phase):
+        if self.serial is None:
+            self.open_port()  # open port
+
+        try:
+            data = struct.pack("<BBBhB", 0x37, 0x00, self.ess_setpoint_ram_id, -power, phase-1)  # cmd, flags, id, power
+            self.send_frame('x', data)
+
+            data = self.receive_mk2_frame()
+            logging.info("got frame {}".format(data))
+            if not data or len(data)<4:
+                logging.error(f"set_ess_power_3p: invalid frame {data}")
+                return False
+            
+            if chr(data[2]) in 'X':
+                if data[3] == 0x87:
+                    self.log.info(f"set_ess_power {data[1]} done")
+                    return True
+                else:
+                    self.log.error(f"set_ess_power {data[1]} failed. got {chr(data[2])}")
+            else:
+                logging.error(f"set_ess_power_3p: invalid frame {data[2]}")
+            return False
+             
+        except IOError:
+            self.serial = None
+            self.log.error("serial port failed")
+        except Exception as e:
+            self.log.error("set_ess_power: power={}, phase={} error={}".format(power, phase, e))
+            return False
+
+
+
+    def set_power_3p(self, power_L1, power_L2, power_L3):
+        if self.serial is None:
+            self.open_port()  # open port
+
+        try:
+            data = struct.pack("<BBBhB", 0x37, 0x00, self.ess_setpoint_ram_id, -power_L1, 0x0)  # cmd, flags, id, power
+            self.send_frame('x', data)
+            data = struct.pack("<BBBhB", 0x37, 0x00, self.ess_setpoint_ram_id, -power_L2, 0x1)  # cmd, flags, id, power
+            self.send_frame('y', data)
+            data = struct.pack("<BBBhB", 0x37, 0x00, self.ess_setpoint_ram_id, -power_L3, 0x2)  # cmd, flags, id, power
+            self.send_frame('z', data)
+
+            # 05 FF W 87=OK  03 FF W 
+            # 0. lenght 
+            # 1. 0xFF
+            # 2. 0x58 X
+            # 3. 40x80 = Command not supported
+            # 3. 0x87 = Write ramvar OK
+            # 3. 0x88 = Write setting OK
+            # 3. 0x9B = Access level required
+
+            waiting_frames = ['X', 'Y', 'Z']
+            ok_count=0
+            while len(waiting_frames)>0:
+                data = self.receive_mk2_frame()
+                logging.info("got frame {}".format(data))
+                if not data or len(data)<4:
+                    logging.error(f"set_ess_power_3p: invalid frame {data}")
+                    continue
+                if chr(data[2]) in waiting_frames:
+                    waiting_frames.remove(chr(data[2]))
+                    if data[3] == 0x87:
+                        self.log.info(f"set_ess_power {data[1]} done")
+                        ok_count+=1
+                    else:
+                        self.log.error(f"set_ess_power {data[1]} failed. got {chr(data[2])}")
+                else:
+                    logging.error(f"set_ess_power_3p: invalid frame {data[2]}")
+            return ok_count==3
+            
+            
+        except IOError:
+            self.serial = None
+            self.log.error("serial port failed")
+        except Exception as e:
+            self.log.error("set_ess_power: power={} error={}".format(power_L1, e))
+            return False
+
+
+
     def reset_device(self, device=0):
-        data = struct.pack("<BB", 0x8, device)  # cmd, device_id (0=all devices)
+        data = struct.pack("<BBBBB", 0x8, 0, 0, device, 0)  # cmd, device_id (0=all devices)
         self.send_frame('F', data)
         logging.info("reset done")
 
@@ -282,7 +373,7 @@ class VEBus:
         rx=self.receive_frame(b'\x07\x3c')
         logging.info(f"set_bol done {rx}")
 
-    def set_ess_modules(self, disable_feed: bool, disable_charge: bool):
+    def set_ess_modules(self, disable_feed: bool, disable_charge: bool, phase: int):
         if self.serial is None:
             self.open_port()  # open port
 
@@ -293,8 +384,8 @@ class VEBus:
             if disable_feed:
                 ess_flag+=0x2
 
-            data = struct.pack("<BBBh", 0x37, 0x00, self.ess_setpoint_ram_id+1, ess_flag)  # cmd, flags, id, power
-            self.send_frame('X', data)
+            data = struct.pack("<BBBhB", 0x37, 0x00, self.ess_setpoint_ram_id+1, ess_flag, phase)  # cmd, flags, id, power
+            self.send_frame('x', data)
             rx = self.receive_frame([b'\x05\xFF\x58', b'\x03\xFF\x58'])  # two different answers are possible
             if rx[3] == 0x87:
                 self.log.info("set_ess_modules to {}W done".format(ess_flag))
@@ -385,6 +476,110 @@ class VEBus:
         checksum = 256 - sum(frame) & 0xFF  # calculate checksum
         frame += bytes((checksum,))  # append checksum
         return frame
+
+
+    def receive_mk2_frame(self, timeout=0.5):
+        return self.receive_generic_frame(0xFF, timeout)
+
+
+    def receive_generic_frame(self, frame_prefix, timeout=0.5):
+        """
+        Receive frame
+
+        :param head: search pattern (frame start)
+        :param timeout:
+        :return: frame bytes
+        """
+        # self.serial.reset_input_buffer()
+        rx = bytes()
+        tout = time.perf_counter() + timeout
+        length = 0
+        last_byte=None
+        data = bytes()
+        start_found=False
+        frame_end=False
+        crc_byte=None
+
+        pos=0
+
+        while time.perf_counter() < tout and not frame_end: # and pos<len(testdata):
+#        while not frame_end and pos<len(testdata):
+            next_byte = self.serial.read(1)
+            if len(next_byte)==0:
+                time.sleep(0.010)
+                continue
+
+#            next_byte = testdata[pos]
+           # next_byte_as_byte=next_byte.to_bytes(1, byteorder='big')
+            next_byte_as_byte=next_byte
+            next_byte=int(next_byte_as_byte[0])
+            rx += next_byte_as_byte
+
+      #      logging.debug(next_byte)
+                          
+            if start_found:
+                if len(data) == length:
+                    crc_byte = next_byte
+                    frame_end=True
+                else:
+                    data += next_byte_as_byte
+            elif next_byte == frame_prefix:
+                length = last_byte
+                data = bytes()
+                data += next_byte_as_byte
+                
+                start_found = True
+            elif pos == 0:
+                logging.debug(f"got lenght? {next_byte}")
+            else:
+                logging.debug(f"receive_frame_2: invalid byte {next_byte}, skiping, waiting for {frame_prefix}")
+                start_found = False
+
+            last_byte=next_byte
+            pos+=1
+
+
+        if frame_end and crc_byte:
+            crc = 256 - sum(rx[:-1]) & 0xFF
+            if crc == crc_byte:
+                logging.debug(f"receive_frame_2: valid frame {data}, length={len(data)}")
+          #      data2=data[1:]
+                logging.debug(f"receive_frame_2: valid frame {rx}, length={len(rx)}")
+                return rx
+            else:
+                logging.error(f"receive_frame_2: invalid frame {data}, crc={crc:02X}, crc_byte={crc_byte:02X}")
+                data2=data[1:]
+                logging.debug(f"receive_frame_2: invalid frame {rx}, length={len(rx)}")
+                return rx
+        else:
+            logging.error(f"receive_frame_2: invalid frame {data}")
+            return data
+        
+
+
+
+
+
+            # time.sleep(0.010)
+            # if isinstance(head, (list, tuple)):
+            #     for h in head:
+            #         p = rx.find(h)
+            #         if p >= 0:
+            #             break
+            # else:
+            #     p = rx.find(head)
+
+            # if (p >= 0):
+            #     flen = rx[p] + 2  # expected full package length
+            #     if (len(rx) - p) >= flen:  # rx matches expected full package length
+            #         self.log.debug("RX: frame={}".format(self.format_hex(rx[p:p + flen])))
+            #         return rx[p:p + flen]
+
+        if rx:
+            raise Exception("invalid rx frame {}".format(self.format_hex(rx)))
+        else:
+            raise Exception("receive timeout, no data")
+
 
     def receive_frame(self, head, timeout=0.5):
         """

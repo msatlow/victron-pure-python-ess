@@ -17,6 +17,8 @@ import datetime
 
 MAX_VICTRON_RAMP=400
 
+# https://github.com/yvesf/ve-ctrl-tool
+
 class SetPoint:
     def __init__(self, mqtt_client, config):
         self.mp2=MultiPlus2(config['VICTRON']['serial_port'])
@@ -32,6 +34,7 @@ class SetPoint:
         self.mp2_standby=False
         self.mp2_device_state_name=None
         self.mppt_topic=None
+        self.cmd_topic=None
         self.mppt_power=0
         self.last_mppt_power=None
         self.counter=0
@@ -69,7 +72,7 @@ class SetPoint:
             if not self.battery_empty_ts:
                 self.battery_empty_ts=time.time()
 
-            if self.battery_empty_ts and time.time()-self.battery_empty_ts > 300:
+            if self.battery_empty_ts and time.time()-self.battery_empty_ts > self.config.getint('VICTRON','SLEEP_TIMEOUT', fallback=3600):
                 logging.warning("battery empty for 5 minutes, go to standby")
                 self.mp2.sleep()
                 self.mp2.command(0)
@@ -230,8 +233,59 @@ class SetPoint:
         f.write(f"Watchdog on {datetime.datetime.now()}")
         f.close()
 
+    def fech_data(self):
+        self.mp2.update()
+        data=self.mp2.data
+        print(data)
 
-def on_message(client, set_point_class, message):
+  #      self.mp2.reset()
+
+        for i in range(1,2):
+
+          #  self.mp2.vebus.wakeup()
+            time.sleep(1)
+
+            self.mp2.update()
+            data=self.mp2.data
+            print(data)
+
+            for phase in range (1,4):
+                print(f"Phase {phase}")
+                ac_info = self.mp2.vebus.get_ac_info(phase)
+                print(ac_info)
+
+
+
+# #        ret = self.mp2.vebus.set_power_3p(100,100,100)
+        # print(self.mp2.vebus.set_power_phase(0,1))
+        # print(self.mp2.vebus.set_power_phase(0,2))
+        # print(self.mp2.vebus.set_power_phase(0,3))
+
+      #  self.mp2.vebus.reset_device(0)
+
+        self.mp2.vebus.set_ess_modules(disable_feed=True, disable_charge=True, phase=1)
+
+        print("end")
+  
+
+
+    def call_cmd(self, data):
+        logging.info(f"got cmd: {data}")
+        match data.get('cmd'):
+            case 'reset':
+                logging.info("reset mp2")
+                self.mp2.vebus.reset_device(0)
+            case 'sleep':
+                logging.info("sleep mp2")
+                self.mp2.vebus.sleep()
+            case 'wakeup':
+                logging.info("wakeup mp2")
+                self.mp2.vebus.wakeup()
+            case _:
+                logging.warning(f"unknown cmd {data.get('cmd')}")
+
+
+def on_message(mqtt_client, set_point_class, message):
     logging.debug(f"message received topic: {message.topic} {str(message.payload.decode('utf-8'))}")
     try:
         data=json.loads(str(message.payload.decode("utf-8")))
@@ -242,8 +296,10 @@ def on_message(client, set_point_class, message):
         elif message.topic == set_point_class.config['BMS1']['topic']:
             logging.info(f"update from bms1: soc: {data['soc']}, voltage: {data['voltage']}")
             set_point_class.update_bms_soc(data['soc'])
-        elif message.topic == client.mpp_topic:
+        elif message.topic == set_point_class.mppt_topic:
             set_point_class.update_mppt(data)
+        elif message.topic == set_point_class.cmd_topic:
+            set_point_class.call_cmd(data)
         else:
             logging.info(f"unknown topic {message.topic}")
             logging.info(f"not {set_point_class.config['SMARTMETER']['topic']}")
@@ -270,7 +326,7 @@ config_file=None
 # main program
 def main():
     global config_file
-    logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s', stream=sys.stdout)
+    logging.basicConfig(level=logging.DEBUG, format='%(asctime)s %(levelname)s %(message)s', stream=sys.stdout)
     sysloghandler=logging.handlers.SysLogHandler(address='/dev/log')
     sysloghandler.setLevel(logging.WARNING)
     logging.getLogger().addHandler(sysloghandler)
@@ -284,25 +340,32 @@ def main():
 
     read_config()
 
-    client = mqtt.Client("UPDATE_SETPOINT")
+    mqtt_client = mqtt.Client("UPDATE_SETPOINT")
+    set_point_class=SetPoint(mqtt_client, config)
+
     if config['MQTT'].get('user'):
         logging.info("mqtt password given")
-        client.username_pw_set(config['MQTT']['user'], config['MQTT']['password'])
-    client.on_message = on_message
+        mqtt_client.username_pw_set(config['MQTT']['user'], config['MQTT']['password'])
+    mqtt_client.on_message = on_message
 
     logging.info(f"connect to mqtt server {config['MQTT']['host']}")
-    client.connect(config['MQTT']['host'], int(config['MQTT']['port']))
+    mqtt_client.connect(config['MQTT']['host'], int(config['MQTT']['port']))
     logging.info(f"subscribe {config['SMARTMETER']['topic']}")
-    client.subscribe(config['SMARTMETER']['topic'])
+    mqtt_client.subscribe(config['SMARTMETER']['topic'])
     logging.info(f"subscibe {config['BMS1']['topic']}")
-    client.subscribe(config['BMS1']['topic'])
+    mqtt_client.subscribe(config['BMS1']['topic'])
 
     if config['VICTRON'].get('mppt_topic'):
-        client.mpp_topic=config['VICTRON']['mppt_topic']
-        client.subscribe(config['VICTRON']['mppt_topic'])
+        set_point_class.mppt_topic=config['VICTRON']['mppt_topic']
+        mqtt_client.subscribe(config['VICTRON']['mppt_topic'])
 
-    set_point_class=SetPoint(client, config)
-    client.user_data_set(set_point_class)
+    if config['VICTRON'].get('cmd_topic'):
+        logging.info(f"subscibe {config['VICTRON']['cmd_topic']}")
+        set_point_class.cmd_topic=config['VICTRON']['cmd_topic']
+        mqtt_client.subscribe(config['VICTRON']['cmd_topic'])
+
+
+    mqtt_client.user_data_set(set_point_class)
 
 
     #client.subscribe("#")
@@ -310,8 +373,11 @@ def main():
     signal.signal(signal.SIGHUP, signal_hub_handler)
 
 
+    set_point_class.fech_data()
+
+    #return None
     logging.info("start loop")
-    client.loop_forever()
+    mqtt_client.loop_forever()
 
 if __name__ == '__main__':
     main()
