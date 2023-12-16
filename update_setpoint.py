@@ -300,6 +300,12 @@ def on_message(mqtt_client, set_point_class, message):
             set_point_class.update_mppt(data)
         elif message.topic == set_point_class.cmd_topic:
             set_point_class.call_cmd(data)
+        elif message.topic == set_point_class.soc_min_topic:
+            logging.warning(f"update soc_min: {data}")
+            set_point_class.config['VICTRON']['MIN_SOC']=str(data)
+        elif message.topic == set_point_class.soc_max_topic:
+            logging.warning(f"update soc_max: {data}")
+            set_point_class.config['VICTRON']['MAX_SOC']=str(data)
         else:
             logging.info(f"unknown topic {message.topic}")
             logging.info(f"not {set_point_class.config['SMARTMETER']['topic']}")
@@ -363,6 +369,21 @@ def main():
         logging.info(f"subscibe {config['VICTRON']['cmd_topic']}")
         set_point_class.cmd_topic=config['VICTRON']['cmd_topic']
         mqtt_client.subscribe(config['VICTRON']['cmd_topic'])
+
+    if config['VICTRON'].get('cmd_topic'):
+        logging.info(f"subscibe {config['VICTRON']['cmd_topic']}")
+        set_point_class.cmd_topic=config['VICTRON']['cmd_topic']
+        mqtt_client.subscribe(config['VICTRON']['cmd_topic'])
+
+    if config['VICTRON'].get('soc_min_topic'):
+        logging.info(f"subscibe {config['VICTRON']['soc_min_topic']}")
+        set_point_class.soc_min_topic=config['VICTRON']['soc_min_topic']
+        mqtt_client.subscribe(config['VICTRON']['soc_min_topic'])
+
+    if config['VICTRON'].get('soc_max_topic'):
+        logging.info(f"subscibe {config['VICTRON']['soc_max_topic']}")
+        set_point_class.soc_max_topic=config['VICTRON']['soc_max_topic']
+        mqtt_client.subscribe(config['VICTRON']['soc_max_topic'])
 
 
     mqtt_client.user_data_set(set_point_class)
