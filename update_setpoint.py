@@ -170,7 +170,7 @@ class SetPoint:
         if self.mp2_power< -1* self.get_max_invert():
             self.mp2_power=-1* self.get_max_invert()
 
-        if self.mp2_standby and self.mp2_power>0 and self.mp2_power<50:
+        if self.mp2_standby and self.mp2_power>0 and self.sm_power < -50:
             logging.info("mp2 is in standby, but power is less than 100W, keep standby")
             self.mp2_power=0
 
@@ -292,27 +292,29 @@ class SetPoint:
 def on_message(mqtt_client, set_point_class, message):
     logging.debug(f"message received topic: {message.topic} {str(message.payload.decode('utf-8'))}")
     try:
-        data=json.loads(str(message.payload.decode("utf-8")))
+        data = json.loads(str(message.payload.decode("utf-8")))
 
-        if message.topic == set_point_class.config['SMARTMETER']['topic']:
-            logging.debug(f"update from smartmeter: {data['power']}")
-            set_point_class.update_sm_power(data['power']*-1)
-        elif message.topic == set_point_class.config['BMS1']['topic']:
-            logging.info(f"update from bms1: soc: {data['soc']}, voltage: {data['voltage']}")
-            set_point_class.update_bms_soc(data['soc'])
-        elif message.topic == set_point_class.mppt_topic:
-            set_point_class.update_mppt(data)
-        elif message.topic == set_point_class.cmd_topic:
-            set_point_class.call_cmd(data)
-        elif message.topic == set_point_class.soc_min_topic:
-            logging.warning(f"update soc_min: {data}")
-            set_point_class.config['VICTRON']['MIN_SOC']=str(data)
-        elif message.topic == set_point_class.soc_max_topic:
-            logging.warning(f"update soc_max: {data}")
-            set_point_class.config['VICTRON']['MAX_SOC']=str(data)
-        else:
-            logging.info(f"unknown topic {message.topic}")
-            logging.info(f"not {set_point_class.config['SMARTMETER']['topic']}")
+        match message.topic:
+            case set_point_class.smartmeter_topic:
+                logging.debug(f"update from smartmeter: {data['power']}")
+                set_point_class.update_sm_power(data['power']*-1)
+            case set_point_class.bms1_topic:
+                logging.info(f"update from bms1: soc: {data['soc']}, voltage: {data['voltage']}")
+                set_point_class.update_bms_soc(data['soc'])
+            case set_point_class.mppt_topic:
+                set_point_class.update_mppt(data)
+            case set_point_class.cmd_topic:
+                set_point_class.call_cmd(data)
+            case set_point_class.soc_min_topic:
+                logging.warning(f"update soc_min: {data}")
+                set_point_class.config['VICTRON']['MIN_SOC'] = str(data)
+            case set_point_class.soc_max_topic:
+                logging.warning(f"update soc_max: {data}")
+                set_point_class.config['VICTRON']['MAX_SOC'] = str(data)
+            case _:
+                logging.info(f"unknown topic {message.topic}")
+                logging.info(f"not {set_point_class.config['SMARTMETER']['topic']}")
+
     except Exception as ex:
         logging.error(ex, exc_info=True)
 
@@ -356,39 +358,27 @@ def main():
     if config['MQTT'].get('user'):
         logging.info("mqtt password given")
         mqtt_client.username_pw_set(config['MQTT']['user'], config['MQTT']['password'])
+
     mqtt_client.on_message = on_message
 
     logging.info(f"connect to mqtt server {config['MQTT']['host']}")
     mqtt_client.connect(config['MQTT']['host'], int(config['MQTT']['port']))
-    logging.info(f"subscribe {config['SMARTMETER']['topic']}")
-    mqtt_client.subscribe(config['SMARTMETER']['topic'])
-    logging.info(f"subscibe {config['BMS1']['topic']}")
-    mqtt_client.subscribe(config['BMS1']['topic'])
 
-    if config['VICTRON'].get('mppt_topic'):
-        set_point_class.mppt_topic=config['VICTRON']['mppt_topic']
-        mqtt_client.subscribe(config['VICTRON']['mppt_topic'])
+    topics = {
+        'smartmeter_topic': config['SMARTMETER']['topic'],
+        'bms1_topic': config['BMS1']['topic'],
+        'mppt_topic': config['VICTRON'].get('mppt_topic'),
+        'cmd_topic': config['VICTRON'].get('cmd_topic'),
+        'soc_min_topic': config['VICTRON'].get('soc_min_topic'),
+        'soc_max_topic': config['VICTRON'].get('soc_max_topic'),
+    }
 
-    if config['VICTRON'].get('cmd_topic'):
-        logging.info(f"subscibe {config['VICTRON']['cmd_topic']}")
-        set_point_class.cmd_topic=config['VICTRON']['cmd_topic']
-        mqtt_client.subscribe(config['VICTRON']['cmd_topic'])
-
-    if config['VICTRON'].get('cmd_topic'):
-        logging.info(f"subscibe {config['VICTRON']['cmd_topic']}")
-        set_point_class.cmd_topic=config['VICTRON']['cmd_topic']
-        mqtt_client.subscribe(config['VICTRON']['cmd_topic'])
-
-    if config['VICTRON'].get('soc_min_topic'):
-        logging.info(f"subscibe {config['VICTRON']['soc_min_topic']}")
-        set_point_class.soc_min_topic=config['VICTRON']['soc_min_topic']
-        mqtt_client.subscribe(config['VICTRON']['soc_min_topic'])
-
-    if config['VICTRON'].get('soc_max_topic'):
-        logging.info(f"subscibe {config['VICTRON']['soc_max_topic']}")
-        set_point_class.soc_max_topic=config['VICTRON']['soc_max_topic']
-        mqtt_client.subscribe(config['VICTRON']['soc_max_topic'])
-
+    # Subscribe to each topic
+    for topic_name, topic in topics.items():
+        if topic:  # Check if topic is not None
+            logging.info(f"Subscribe {topic}")
+            mqtt_client.subscribe(topic)
+        setattr(set_point_class, topic_name, topic)
 
     mqtt_client.user_data_set(set_point_class)
 
