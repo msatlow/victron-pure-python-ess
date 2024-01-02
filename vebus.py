@@ -3,6 +3,7 @@ import struct
 import time
 
 import serial
+import vebus_constants
 
 """
 Victron Energy MK3 Bus Interface
@@ -176,7 +177,7 @@ class VEBus:
             self.log.error("get_ac_info: {}".format(e), exc_info=True)
             return None
 
-    def send_snapshot_request(self):
+    def send_snapshot_request_old(self):
         """
         Trigger a snapshot for values. Could be combined with a other request. NO RESPONSE !
 
@@ -202,7 +203,24 @@ class VEBus:
             self.log.error("send_snapshot_request: {}".format(e))
             return None
 
-    def read_snapshot(self, phase=None):
+    def send_snapshot_request(self, ram_vars):
+        if self.serial is None:
+            self.open_port()
+
+        assert ram_vars is not None and len(ram_vars) > 0 and len(ram_vars) <= 6
+
+        try:
+            self.send_frame('F', vebus_constants.F_Request_Snapshot + ram_vars)
+        except IOError:
+            self.serial = None
+            self.log.error("serial port failed")
+        except Exception as e:
+            self.log.error("send_snapshot_request: {}".format(e))
+            return None
+
+        
+
+    def read_snapshot_old(self, phase=None):
         """
         007.987 TX: 03 FF 58 38 6E
                           X| 38                         0x38/CommandReadSnapShot
@@ -244,6 +262,38 @@ class VEBus:
         except Exception as e:
             self.log.error("read_snapshot: {}".format(e))
             return None
+
+    def read_snapshot(self, ram_vars, phase=None):
+        if self.serial is None:
+            self.open_port()  # open port
+
+        try:
+            if phase:
+                self.send_frame('x', [vebus_constants.WSCommandReadSnapShot, phase])
+            else:
+                self.send_frame('X', [vebus_constants.WSCommandReadSnapShot])
+            frame = self.receive_xyz_frame('X')
+#            frame = self.receive_frame(b'\x0D\xFF\x58')
+            if frame[3] != 0x99:        # CommandReadSnapShot response must be 0x99
+                raise Exception('invalid response')
+            
+            ret = {}
+
+            for ram_var in ram_vars:
+                v=struct.unpack("<h", frame[4+ram_var*2:4+ram_var*2+2])[0]
+                self.log.info(f"read_snapshot: {ram_var}={v}")
+
+                ret.update({ram_var: v})
+
+            return ret
+
+        except IOError:
+            self.serial = None
+            self.log.error("serial port failed")
+        except Exception as e:
+            self.log.error("read_snapshot: {}".format(e))
+            return None
+
 
     def set_power(self, power):
         """
@@ -476,6 +526,13 @@ class VEBus:
         checksum = 256 - sum(frame) & 0xFF  # calculate checksum
         frame += bytes((checksum,))  # append checksum
         return frame
+
+    def receive_xyz_frame(self, xyz='X', timeout=0.5):
+        frame = self.receive_mk2_frame(timeout=timeout)
+        if frame[2] == ord(xyz):
+            return frame
+        else:
+            raise Exception("invalid frame {}".format(self.format_hex(frame)))
 
 
     def receive_mk2_frame(self, timeout=0.5):
