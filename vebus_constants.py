@@ -1,38 +1,68 @@
 
 
-F_Request_DC = 0
-F_Request_AC_L1 = 1
-F_Request_AC_L2 = 2
-F_Request_AC_L3 = 3
-F_Request_AC_L4 = 4
-F_Request_MasterMultiLED = 5
-F_Request_Snapshot = 6
-F_Reset_VEBus_devices = 8
-F_Send_BOL = 9
+F_REQUEST = {
+    "DC": 0,
+    "AC_L1": 1,
+    "AC_L2": 2,
+    "AC_L3": 3,
+    "AC_L4": 4,
+    "MasterMultiLED": 5,
+    "Snapshot": 6,
+    "Reset_VEBus_devices": 8,
+    "Send_BOL": 9,
+}
+
+PHASE_INFO = {
+    'L4' : 0x05,
+    'L3' : 0x06,
+    'L2' : 0x07,
+    'L1_1ph' : 0x08,
+    'L1_2ph' : 0x09,
+    'L1_3ph' : 0x0A,
+    'L1_4ph' : 0x0B,
+    'DC' : 0x0C,
+}
+
+PHASE_INFO_invers = {v: k for k, v in PHASE_INFO.items()}
+
+MULTI_STATE_invers = {
+    0x0 : 'Down',
+    0x1 : 'Startup',
+    0x2 : 'Off',
+    0x3 : 'Slave',
+    0x4 : 'InvertFull',
+    0x5 : 'InvertHalf',
+    0x6 : 'InvertAES',
+    0x7 : 'PowerAssist',
+    0x8 : 'Bypass',
+    0x9 : 'StateCharge',
+}
 
 
+RAM_IDS = {
+    "UMainsRMS": 0,
+    "IMainsRMS": 1,
+    "UInverterRMS": 2,
+    "IInverterRMS": 3,
+    "UBat": 4,
+    "IBat": 5,
+    "UBatRMS": 6,  # RMS=value of ripple voltage
+    "InverterPeriodTime": 7,  # time-base 0.1s
+    "MainsPeriodTime": 8,  # time-base 0.1s
+    "SignedACLoadCurrent": 9,
+    "VirtualSwitchPosition": 10,
+    "IgnoreACInputState": 11,
+    "MultiFunctionalRelayState": 12,
+    "ChargeState": 13,  # battery monitor function
+    "InverterPower1": 14,  # filtered. 16bit signed integer. Positive AC->DC. Negative DC->AC.
+    "InverterPower2": 15,  # ..
+    "OutputPower": 16,  # AC Output. 16bit signed integer.
+    "InverterPower1Unfiltered": 17,
+    "InverterPower2Unfiltered": 18,
+    "OutputPowerUnfiltered": 19,
+}
 
-RAMIDUMainsRMS                 = 0
-RAMIDIMainsRMS                 = 1
-RAMIDUInverterRMS              = 2
-RAMIDIINverterRMS              = 3
-RAMIDUBat                      = 4
-RAMIDIBat                      = 5
-RAMIDUBatRMS                   = 6 # RMS=value of ripple voltage
-RAMIDInverterPeriodTime        = 7 # time-base 0.1s
-RAMIDMainsPeriodTime           = 8 # time-base 0.1s
-RAMIDSignedACLoadCurrent       = 9
-RAMIDVirtualSwitchPosition     = 10
-RAMIDIgnoreACInputState        = 11
-RAMIDMultiFunctionalRelayState = 12
-RAMIDChargeState               = 13 # battery monitor function
-RAMIDInverterPower1            = 14 # filtered. 16bit signed integer. Positive AC->DC. Negative DC->AC.
-RAMIDInverterPower2            = 15 # ..
-RAMIDOutputPower               = 16 # AC Output. 16bit signed integer.
-RAMIDInverterPower1Unfiltered  = 17
-RAMIDInverterPower2Unfiltered  = 18
-RAMIDOutputPowerUnfiltered     = 19
-
+RAM_IDS_invers = {v: k for k, v in RAM_IDS.items()}
 
 
 WCommandSendSoftwareVersionPart0 = 0x05
@@ -43,6 +73,9 @@ WCommandReadSetting              = 0x31
 WCommandWriteRAMVar              = 0x32
 WCommandWriteSetting             = 0x33
 WCommandWriteData                = 0x34
+WCommandGetSettingInfo           = 0x35
+WCommandGetRAMVarInfo            = 0x36
+
 WCommandWriteViaID               = 0x37
 WSCommandReadSnapShot            = 0x38
 

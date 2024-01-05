@@ -14,6 +14,7 @@ import logging.handlers
 import sys
 import signal
 import datetime
+import pprint
 
 MAX_VICTRON_RAMP=400
 
@@ -72,13 +73,14 @@ class SetPoint:
             if not self.battery_empty_ts:
                 self.battery_empty_ts=time.time()
 
-            if self.battery_empty_ts and time.time()-self.battery_empty_ts > self.config.getint('VICTRON','SLEEP_TIMEOUT', fallback=3600):
-                logging.warning("battery empty for 5 minutes, go to standby")
-                self.mp2.sleep()
-                self.mp2.command(0)
-                self.mp2_standby=True
-                self.battery_empty_ts=None
-            # else:
+            if self.config.getboolean('VICTRON','sleep_enabled', fallback=False):
+                if self.battery_empty_ts and time.time()-self.battery_empty_ts > self.config.getint('VICTRON','SLEEP_TIMEOUT', fallback=3600):
+                    logging.warning("battery empty for 5 minutes, go to standby")
+                    self.mp2.sleep()
+                    self.mp2.command(0)
+                    self.mp2_standby=True
+                    self.battery_empty_ts=None
+                # else:
             #     self.mp2.command(0)               # required???
 
             
@@ -162,7 +164,6 @@ class SetPoint:
         if self.mp2_power<self.mp2_power_old-MAX_VICTRON_RAMP:
             self.mp2_power=self.mp2_power_old-MAX_VICTRON_RAMP
 
-
         logging.info(f"mp2_power={self.mp2_power}, old: {self.mp2_power_old} sum: {sm_power}")
         
         if self.mp2_power>self.get_max_charge():
@@ -170,7 +171,7 @@ class SetPoint:
         if self.mp2_power< -1* self.get_max_invert():
             self.mp2_power=-1* self.get_max_invert()
 
-        if self.mp2_standby and self.mp2_power>0 and self.sm_power < -50:
+        if self.mp2_standby and self.mp2_power>0 and sm_power < -50:
             logging.info("mp2 is in standby, but power is less than 100W, keep standby")
             self.mp2_power=0
 
@@ -244,21 +245,65 @@ class SetPoint:
 
   #      self.mp2.reset()
 
-        for i in range(1,2):
+        phase_dict={0:{}, 1:{}, 2:{}, 3:{}}
 
-          #  self.mp2.vebus.wakeup()
-            time.sleep(1)
-
-            self.mp2.update()
-            data=self.mp2.data
-            print(data)
-
-            for phase in range (1,4):
-                print(f"Phase {phase}")
-                ac_info = self.mp2.vebus.get_ac_info(phase)
-                print(ac_info)
+        for phase in range (1,4):
+            print(f"Phase {phase}")
+            ac_info = self.mp2.vebus.get_ac_info(phase)
+            print(ac_info)
+            phase_dict[phase].update({"ac_info": ac_info })
 
 
+    #    ids = [15, 16, 4, 5, 13]  # up to 6x
+        for page in range(0,4):
+#            ids = list(range(page*5, page*5+5))
+            ids = list(filter(lambda x: x not in [10], range(page*5, page*5+5)))
+
+            print(f"ids: {ids}")
+            self.mp2.vebus.send_snapshot_request(ids)
+            time.sleep(0.1)
+            for phase in range(1,4):
+                try:
+                    print(f"Phase {phase}")
+                    ret = self.mp2.vebus.read_snapshot(ids, phase=phase)
+                    print(ret)
+                    if ret:
+                        phase_dict[phase].update(ret)
+                #    print(phase_dict)
+                except Exception as ex:
+                    print(ex)
+                    traceback.print_exc()
+
+        pprint.pprint(phase_dict)
+
+#        settings_to_read = [0, 1, 2, 3, 4, 14, 64]
+        
+        flag0_15 = self.mp2.vebus.read_settings(0, phase=phase)
+        flag0_16_text = '{0:016b}'.format(flag0_15)
+
+
+        for i, bit in enumerate(reversed(flag0_16_text), start=0):
+            print(f"bit {i} = {'true' if bit == '1' else 'false'}")
+
+        flag16_31 = self.mp2.vebus.read_settings(1, phase=phase)
+        flag16_31_text = '{0:016b}'.format(flag16_31)
+
+        for i, bit in enumerate(reversed(flag16_31_text), start=16):
+            print(f"bit {i} = {'true' if bit == '1' else 'false'}")
+
+        settings_to_read = [2, 11, 15, 64]
+        for setting_id in settings_to_read:
+            print(f"setting {setting_id}")
+            for phase in range(1,2):
+                ret = self.mp2.vebus.read_settings(setting_id, phase=phase)
+                print(f"phase {phase} setting {setting_id} = {ret}, {bin(ret)} {int(ret)}")
+                # bit_string = bin(ret)[2:]  # Remove '0b' prefix
+                # for i, bit in enumerate(bit_string, start=1):
+                #     print(f"bit {i-1} = {'true' if bit == '1' else 'false'}")
+
+
+        if self.mqtt_client:
+            self.mqtt_client.publish(self.config['VICTRON']['fetch_data_topic'], json.dumps(phase_dict))
 
 # #        ret = self.mp2.vebus.set_power_3p(100,100,100)
         # print(self.mp2.vebus.set_power_phase(0,1))
@@ -267,7 +312,7 @@ class SetPoint:
 
       #  self.mp2.vebus.reset_device(0)
 
-        self.mp2.vebus.set_ess_modules(disable_feed=True, disable_charge=True, phase=1)
+#        self.mp2.vebus.set_ess_modules(disable_feed=True, disable_charge=True, phase=1)
 
         print("end")
   
@@ -285,6 +330,10 @@ class SetPoint:
             case 'wakeup':
                 logging.info("wakeup mp2")
                 self.mp2.vebus.wakeup()
+            case 'fetch_data':
+                logging.info("fetch data")
+                self.fech_data()
+
             case _:
                 logging.warning(f"unknown cmd {data.get('cmd')}")
 
@@ -347,6 +396,7 @@ def main():
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", help="config.ini file", default="config.ini")
+    parser.add_argument("--dump", help="dump option", action="store_true")
     args = parser.parse_args()
     config_file=args.config
 
@@ -387,10 +437,10 @@ def main():
 
     signal.signal(signal.SIGHUP, signal_hub_handler)
 
+    if args.dump:
+        set_point_class.fech_data()
+        return None
 
-    set_point_class.fech_data()
-
-    #return None
     logging.info("start loop")
     mqtt_client.loop_forever()
 
