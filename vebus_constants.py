@@ -62,6 +62,31 @@ RAM_IDS = {
     "OutputPowerUnfiltered": 19,
 }
 
+RAM_IDS_scale = {
+    "UMainsRMS": lambda x: x * 0.01,
+    "IMainsRMS": lambda x: x * 0.01,
+    "UInverterRMS": lambda x: x * 0.01,
+    "IInverterRMS": lambda x: x * 0.01,
+    "UBat": lambda x: x * 0.01,
+    "IBat": lambda x: x * 0.01,
+    "UBatRMS": lambda x: x * 0.01,
+    "InverterPeriodTime": lambda x: 1/ (x * 0.000510 + 0.256),
+    "MainsPeriodTime": lambda x: 1/ (x * 0.0001024),
+    "SignedACLoadCurrent": lambda x: x * 0.01,
+    "VirtualSwitchPosition": lambda x: x & 0x8,
+    "IgnoreACInputState":  lambda x: x & 0x01,
+    "MultiFunctionalRelayState": lambda x: x & 0x20,
+    "ChargeState": lambda x: x * 0.5,
+    "InverterPower1": lambda x: x,
+    "InverterPower2": lambda x: x,
+    "OutputPower": lambda x: x,
+    "InverterPower1Unfiltered": lambda x: x,
+    "InverterPower2Unfiltered": lambda x: x,
+    "OutputPowerUnfiltered": lambda x: x,
+}
+
+
+
 RAM_IDS_invers = {v: k for k, v in RAM_IDS.items()}
 
 
@@ -84,6 +109,7 @@ WReplyReadRAMOK                  = 0x85
 WReplyReadSettingOK              = 0x86
 WReplySuccesfulRAMWrite          = 0x87
 WReplySuccesfulSettingWrite      = 0x88
+WReplySuccesfulRAMVarInfo        = 0x8E
 WReplyVariableNotSupported       = 0x90
 WReplySettingNotSupported        = 0x91
 WReplyCommandGetSetDeviceStateOK = 0x94

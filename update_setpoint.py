@@ -15,6 +15,7 @@ import sys
 import signal
 import datetime
 import pprint
+import vebus_constants
 
 MAX_VICTRON_RAMP=400
 
@@ -238,14 +239,28 @@ class SetPoint:
         f.write(f"Watchdog on {datetime.datetime.now()}")
         f.close()
 
+    def get_ram_var_infos(self):
+        (soc_sc, soc_offset) = self.mp2.vebus.read_ram_var_info(vebus_constants.RAM_IDS['ChargeState'])
+        print(f"soc_sc: {soc_sc}, soc_offset: {soc_offset}")
+
+        (sc, offset) = self.mp2.vebus.read_ram_var_info(vebus_constants.RAM_IDS['UBat'])
+        print(f"ubat: soc_sc: {sc}, soc_offset: {offset}")
+
+        (sc, offset) = self.mp2.vebus.read_ram_var_info(vebus_constants.RAM_IDS['UMainsRMS'])
+        print(f"UMainsRMS: sc: {sc}, offset: {offset}")
+
+
+
     def fech_data(self):
         self.mp2.update()
         data=self.mp2.data
         print(data)
 
-  #      self.mp2.reset()
 
-        phase_dict={0:{}, 1:{}, 2:{}, 3:{}}
+#        infos=self.get_ram_var_infos()
+#        return None
+
+        phase_dict={1:{}, 2:{}, 3:{}}
 
         for phase in range (1,4):
             print(f"Phase {phase}")
@@ -253,15 +268,12 @@ class SetPoint:
             print(ac_info)
             phase_dict[phase].update({"ac_info": ac_info })
 
-
-    #    ids = [15, 16, 4, 5, 13]  # up to 6x
         for page in range(0,4):
-#            ids = list(range(page*5, page*5+5))
-            ids = list(filter(lambda x: x not in [10], range(page*5, page*5+5)))
+            ids = list(filter(lambda x: x not in [10], range(page*5, page*5+5)))        # 10 cannot be read, virtual switches
 
             print(f"ids: {ids}")
             self.mp2.vebus.send_snapshot_request(ids)
-            time.sleep(0.1)
+#            time.sleep(0.1)
             for phase in range(1,4):
                 try:
                     print(f"Phase {phase}")
@@ -278,18 +290,20 @@ class SetPoint:
 
 #        settings_to_read = [0, 1, 2, 3, 4, 14, 64]
         
-        flag0_15 = self.mp2.vebus.read_settings(0, phase=phase)
-        flag0_16_text = '{0:016b}'.format(flag0_15)
+        for phase in range(1,4):
+            flag0_15 = self.mp2.vebus.read_settings(0, phase=phase)
+            flag0_16_text = '{0:016b}'.format(flag0_15)
+            phase_dict[phase].update({f"flag0_16_text": flag0_16_text})
 
+            for i, bit in enumerate(reversed(flag0_16_text), start=0):
+                print(f"bit {i} = {'true' if bit == '1' else 'false'}")
 
-        for i, bit in enumerate(reversed(flag0_16_text), start=0):
-            print(f"bit {i} = {'true' if bit == '1' else 'false'}")
+            flag16_31 = self.mp2.vebus.read_settings(1, phase=phase)
+            flag16_31_text = '{0:016b}'.format(flag16_31)
+            phase_dict[phase].update({f"flag16_31_text": flag16_31_text})
 
-        flag16_31 = self.mp2.vebus.read_settings(1, phase=phase)
-        flag16_31_text = '{0:016b}'.format(flag16_31)
-
-        for i, bit in enumerate(reversed(flag16_31_text), start=16):
-            print(f"bit {i} = {'true' if bit == '1' else 'false'}")
+            for i, bit in enumerate(reversed(flag16_31_text), start=16):
+                print(f"bit {i} = {'true' if bit == '1' else 'false'}")
 
         settings_to_read = [2, 11, 15, 64]
         for setting_id in settings_to_read:
@@ -300,6 +314,7 @@ class SetPoint:
                 # bit_string = bin(ret)[2:]  # Remove '0b' prefix
                 # for i, bit in enumerate(bit_string, start=1):
                 #     print(f"bit {i-1} = {'true' if bit == '1' else 'false'}")
+                phase_dict[phase].update({f"setting_{setting_id}": ret})
 
 
         if self.mqtt_client:
@@ -313,6 +328,9 @@ class SetPoint:
       #  self.mp2.vebus.reset_device(0)
 
 #        self.mp2.vebus.set_ess_modules(disable_feed=True, disable_charge=True, phase=1)
+
+        pprint.pprint(phase_dict)
+
 
         print("end")
   

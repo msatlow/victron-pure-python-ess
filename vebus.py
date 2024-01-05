@@ -157,17 +157,22 @@ class VEBus:
 #                "<BBxBBhhhhB", rx)
                 "<BBxBBhhhhB", rx[2:16])
 
-            device_state_name = {0: 'down', 1: 'startup', 2: 'off', 3: 'slave', 4: 'invert_full', 5: 'invert_half',
-                                 6: 'invert_aes', 7: 'power_assist', 8: 'bypass', 9: 'charge'}[device_state_id]
-
             r = {'device_state_id': device_state_id,
-                 'device_state_name': device_state_name,
-                 'phase_info': phase_info,
-                 'mains_period': mains_period,
-                 'mains_u': round(mains_u / 100, 2),
-                 'mains_i': round(mains_i / 100, 2),
-                 'inv_u': round(inv_u / 100, 2),
-                 'inv_i': round(inv_i / 100, 2)}
+                'device_state_name': vebus_constants.MULTI_STATE_invers.get(device_state_id, f"unknown_{device_state_id}"),
+                'phase_info': phase_info,
+                'phase_info_name': vebus_constants.PHASE_INFO_invers.get(phase_info, f"unknown_{phase_info}"),
+                'mains_period': mains_period,
+                'mains_u': round(mains_u / 100, 2),
+                'mains_i': round(mains_i / 100, 2),
+                'mains_p_calc': round(mains_u / 100 * mains_i / 100),
+                'inv_u': round(inv_u / 100, 2),
+                'inv_i': round(inv_i / 100, 2),
+                'inv_p_calc': round(inv_u / 100 * inv_i / 100),
+                'bf_factor': bf_factor,
+                'inv_factor': inv_factor,
+            }
+            r['own_p_calc'] = round(r['mains_p_calc']-r['inv_p_calc'])
+            
             self.log.info(r)
             return r
         except IOError:
@@ -210,7 +215,7 @@ class VEBus:
         assert ram_vars is not None and len(ram_vars) > 0 and len(ram_vars) <= 6
 
         try:
-            self.send_frame('F', vebus_constants.F_Request_Snapshot + ram_vars)
+            self.send_frame('F', [vebus_constants.F_REQUEST['Snapshot']] + ram_vars)
         except IOError:
             self.serial = None
             self.log.error("serial port failed")
@@ -247,6 +252,9 @@ class VEBus:
             frame = self.receive_frame(b'\x0D\xFF\x58')
             if frame[3] != 0x99:
                 raise Exception('invalid response')
+            # ids = [15, 16, 4, 5, 13] 
+            # InverterPower2, OutputPower, UBat, IBat, ChargeState,
+
             inv_p, out_p, bat_u, bat_i, soc = struct.unpack("<hhhhh", frame[4:4 + 5 * 2])
             r = {'inv_p': -inv_p,
                  'out_p': out_p,
@@ -269,21 +277,26 @@ class VEBus:
 
         try:
             if phase:
-                self.send_frame('x', [vebus_constants.WSCommandReadSnapShot, phase])
+                dev_addr=phase -1 # addr starts at 0
+                self.send_frame('x', [vebus_constants.WSCommandReadSnapShot, dev_addr])
             else:
                 self.send_frame('X', [vebus_constants.WSCommandReadSnapShot])
             frame = self.receive_xyz_frame('X')
 #            frame = self.receive_frame(b'\x0D\xFF\x58')
             if frame[3] != 0x99:        # CommandReadSnapShot response must be 0x99
-                raise Exception('invalid response')
+                raise Exception(f"invalid response {frame[3]}")
             
             ret = {}
 
-            for ram_var in ram_vars:
-                v=struct.unpack("<h", frame[4+ram_var*2:4+ram_var*2+2])[0]
+            for i, ram_var in enumerate(ram_vars):
+                print(f"unpach: {frame[4+i*2:4+i*2+2]}")
+                v=struct.unpack("<h", frame[4+i*2:4+i*2+2])[0]
                 self.log.info(f"read_snapshot: {ram_var}={v}")
 
-                ret.update({ram_var: v})
+#                ret.update({ram_var: v})
+                key = next((k for k, v in vebus_constants.RAM_IDS.items() if v == ram_var), f"unknown_{ram_var}")
+                v_scale = vebus_constants.RAM_IDS_scale.get(key, lambda x: x)(v)
+                ret.update({key: v_scale})
 
             return ret
 
@@ -293,6 +306,69 @@ class VEBus:
         except Exception as e:
             self.log.error("read_snapshot: {}".format(e))
             return None
+
+    def read_settings(self, setting_id, phase=None):
+        if self.serial is None:
+            self.open_port()  # open port
+        
+        try:
+#            setting_id_encoded = struct.pack("<h", setting_id)
+            if phase:
+                dev_addr=phase -1 # addr starts at 0
+                self.send_frame('x', [vebus_constants.WCommandReadSetting, setting_id, dev_addr])
+            else:
+                self.send_frame('X', [vebus_constants.WCommandReadSetting, setting_id])
+            frame = self.receive_xyz_frame('X')
+#            frame = self.receive_frame(b'\x0D\xFF\x58')
+            
+            if frame[3] == vebus_constants.WReplySettingNotSupported:
+                logging.warning(f"read_settings: setting {setting_id} not supported")
+                return None
+            if frame[3] != vebus_constants.WReplyReadSettingOK:
+                raise Exception(f"invalid response {frame[3]}")
+            
+            v=struct.unpack("<H", frame[5:])[0]
+            self.log.info(f"read_settings: {setting_id}={v}")
+            return v
+
+        except IOError:
+            self.serial = None
+            self.log.error("serial port failed")
+        except Exception as e:
+            self.log.error("read_settings: {}".format(e), exc_info=True)
+            return None
+
+
+    def read_ram_var_info(self, ram_var_id):
+        if self.serial is None:
+            self.open_port()  # open port
+        
+        try:
+#            setting_id_encoded = struct.pack("<h", setting_id)
+            self.send_frame('X', [vebus_constants.WCommandGetRAMVarInfo, ram_var_id])
+            frame = self.receive_xyz_frame('X')
+            
+            if frame[3] != vebus_constants.WReplySuccesfulRAMVarInfo:
+                raise Exception(f"invalid response {frame[3]}")
+            
+            (sc, offset) =struct.unpack("<HH", frame[5:5+4])
+            self.log.info(f"read_ram_var_info raw: {ram_var_id}={sc} {offset}")
+            signed = sc & 0x8000
+            
+            abs_sc = sc & 0x7FFF  # remove sign bit
+            if sc & 0x4000:  # 14th bit set
+                print("gt 0x4000")
+                sc = 1 / (0x8000 - abs_sc)
+
+            print(f"read_ram_var_info: {ram_var_id}={sc} {offset} signed={signed} abs_sc={abs_sc}")
+            return (sc, offset)
+
+        except IOError:
+            self.serial = None
+            self.log.error("serial port failed")
+        except Exception as e:
+            self.log.error("read_ram_var_info: {}".format(e), exc_info=True)
+            return (None, None)
 
 
     def set_power(self, power):
@@ -602,6 +678,7 @@ class VEBus:
                 logging.debug(f"receive_frame_2: valid frame {data}, length={len(data)}")
           #      data2=data[1:]
                 logging.debug(f"receive_frame_2: valid frame {rx}, length={len(rx)}")
+                logging.debug(self.format_hex(rx))
                 return rx
             else:
                 logging.error(f"receive_frame_2: invalid frame {data}, crc={crc:02X}, crc_byte={crc_byte:02X}")
