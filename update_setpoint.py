@@ -17,6 +17,8 @@ import datetime
 import pprint
 import vebus_constants
 
+log = logging.getLogger(__name__)
+
 MAX_VICTRON_RAMP=400
 
 # https://github.com/yvesf/ve-ctrl-tool
@@ -49,7 +51,7 @@ class SetPoint:
     def update_mppt(self, data):
         self.mppt_power=data.get('PPV',0)
         self.last_mppt_power=time.time()
-        logging.info(f"mppt power: {self.mppt_power}")
+        log.info(f"mppt power: {self.mppt_power}")
 
     def get_max_charge(self):
         return float(self.config['VICTRON']['MAX_CHARGE'])
@@ -62,7 +64,7 @@ class SetPoint:
 
         if self.last_mppt_power and time.time()-self.last_mppt_power < 20:  # we have current value
             if self.mppt_power-160 > max_invert2:
-                logging.debug(f"increate max_invert2 to {max_invert2} because of mppt power {self.mppt_power}")
+                log.debug(f"increate max_invert2 to {max_invert2} because of mppt power {self.mppt_power}")
                 max_invert2=self.mppt_power - 160
 
         return max(max_invert2, 300)       # mindesten 300 Watt Leistung
@@ -76,7 +78,7 @@ class SetPoint:
 
             if self.config.getboolean('VICTRON','sleep_enabled', fallback=False):
                 if self.battery_empty_ts and time.time()-self.battery_empty_ts > self.config.getint('VICTRON','SLEEP_TIMEOUT', fallback=3600):
-                    logging.warning("battery empty for 5 minutes, go to standby")
+                    log.warning("battery empty for 5 minutes, go to standby")
                     self.mp2.sleep()
                     self.mp2.command(0)
                     self.mp2_standby=True
@@ -87,12 +89,12 @@ class SetPoint:
             
         else:
             if self.mp2_standby:
-                logging.warning("wakeup mp2 from standby")
+                log.warning("wakeup mp2 from standby")
                 self.mp2.wakeup()
                 self.mp2_standby=False
             
             if self.mp2_device_state_name=='off':
-                logging.warning("mp2 is off, wakeup")
+                log.warning("mp2 is off, wakeup")
                 self.mp2.wakeup()
 
             self.mp2.command(int(setpoint))
@@ -133,17 +135,17 @@ class SetPoint:
     def update_sm_power(self, sm_power):
         # multiplus2
         if not self.mp2:
-            logging.error("no mp2")
+            log.error("no mp2")
             return
         self.mp2.update()
-        logging.info(self.mp2.data)
+        log.info(self.mp2.data)
         data=self.mp2.data.copy()
         self.mp2_device_state_name=data.get('device_state_name',None)
         victron_ok=False
 
         if not self.last_bms_soc_data or time.time()-self.last_bms_soc_data > 60:  # last bms data older than 5 minutes
             self.bms_soc=data.get('soc',0)
-            logging.debug(f"no bms data, use mp2 data {self.bms_soc}")
+            log.debug(f"no bms data, use mp2 data {self.bms_soc}")
 
         self.mp2_power_old=self.mp2_power
     #                mp2_power=pid(sm_power)
@@ -165,7 +167,7 @@ class SetPoint:
         if self.mp2_power<self.mp2_power_old-MAX_VICTRON_RAMP:
             self.mp2_power=self.mp2_power_old-MAX_VICTRON_RAMP
 
-        logging.info(f"mp2_power={self.mp2_power}, old: {self.mp2_power_old} sum: {sm_power}")
+        log.info(f"mp2_power={self.mp2_power}, old: {self.mp2_power_old} sum: {sm_power}")
         
         if self.mp2_power>self.get_max_charge():
             self.mp2_power=self.get_max_charge()
@@ -173,7 +175,7 @@ class SetPoint:
             self.mp2_power=-1* self.get_max_invert()
 
         if self.mp2_standby and self.mp2_power>0 and sm_power < -50:
-            logging.info("mp2 is in standby, but power is less than 100W, keep standby")
+            log.info("mp2 is in standby, but power is less than 100W, keep standby")
             self.mp2_power=0
 
         data['mp2_power_request']=self.mp2_power
@@ -186,40 +188,41 @@ class SetPoint:
 
         bat_u=data.get('bat_u',0)
         if 'bat_u' in data and 'inv_p' in data and 'bat_p' in data:
+            log.warning(f"got incomplete data from victron {data}")
             victron_ok=True
 
         rc=self.mqtt_client.publish(self.config['VICTRON']['topic'], json.dumps(data))
-        logging.debug(rc)
+        log.debug(rc)
 
 #        batu_hyst=52.3 - 0.5 if self.mp2_invert else 0
 #        if self.bms_soc < 21 and data.get('bat_u',0)>batu_hyst:
-#            logging.info(f"soc {self.bms_soc} too low but battery full {data.get('bat_u')}")
+#            log.info(f"soc {self.bms_soc} too low but battery full {data.get('bat_u')}")
 #            self.bms_soc=21
 
-        logging.info(f"mp2_power={self.mp2_power}, soc: {self.bms_soc}, bat_u: {bat_u}")
+        log.info(f"mp2_power={self.mp2_power}, soc: {self.bms_soc}, bat_u: {bat_u}")
         if self.mp2_power>0:
             max_soc_hyst=float(self.config['VICTRON']['MAX_SOC']) + (float(self.config['VICTRON']['SOC_HYSTERESIS']) if self.mp2_charge else 0)
             if self.bms_soc < max_soc_hyst:
-                logging.info(f"wakeup and set power {self.mp2_power}")
+                log.info(f"wakeup and set power {self.mp2_power}")
             #  mp2.vebus.set_power(mp2_power)
                 self.set_mp2_setpoint(int(self.mp2_power), standby=False)
                 # self.mp2_charge=True
                 # self.mp2_invert=False
             else:
-                logging.info(f"battery full not {self.bms_soc} < {max_soc_hyst}")
+                log.info(f"battery full not {self.bms_soc} < {max_soc_hyst}")
                 self.set_mp2_setpoint(0, standby=False)
                 # self.mp2_charge=False
                 # self.mp2_invert=False
         else:
             min_soc_hyst = float(self.config['VICTRON']['MIN_SOC']) - (float(self.config['VICTRON']['SOC_HYSTERESIS']) if self.mp2_invert else 0)
             if self.bms_soc > min_soc_hyst :
-                logging.info(f"set power {self.mp2_power}")
+                log.info(f"set power {self.mp2_power}")
 
                 self.set_mp2_setpoint(int(self.mp2_power))
                 # self.mp2_charge=False
                 # self.mp2_invert=True
             else:
-                logging.info(f"battery empty not {self.bms_soc} > {min_soc_hyst}")
+                log.info(f"battery empty not {self.bms_soc} > {min_soc_hyst}")
                 self.set_mp2_setpoint(0, True)
                 # self.mp2_charge=False
                 # self.mp2_invert=False
@@ -227,7 +230,7 @@ class SetPoint:
         try:
             self.custom_update(data)
         except Exception as ex:
-            logging.warning(f"unable to call custom code, got {ex}", exc_info=True) 
+            log.warning(f"unable to call custom code, got {ex}", exc_info=True) 
 
         self.counter+=1
 
@@ -343,50 +346,50 @@ class SetPoint:
 
 
     def call_cmd(self, data):
-        logging.info(f"got cmd: {data}")
+        log.info(f"got cmd: {data}")
         cmd = data.get('cmd')
         if cmd == 'reset':
-            logging.info("reset mp2")
+            log.info("reset mp2")
             self.mp2.vebus.reset_device(0)
         elif cmd == 'sleep':
-            logging.info("sleep mp2")
+            log.info("sleep mp2")
             self.mp2.vebus.sleep()
         elif cmd == 'wakeup':
-            logging.info("wakeup mp2")
+            log.info("wakeup mp2")
             self.mp2.vebus.wakeup()
         elif cmd == 'fetch_data':
-            logging.info("fetch data")
+            log.info("fetch data")
             self.fetch_data()
         else:
-            logging.warning(f"unknown cmd {cmd}")
+            log.warning(f"unknown cmd {cmd}")
 
 def on_message(mqtt_client, set_point_class, message):
-    logging.debug(f"message received topic: {message.topic} {str(message.payload.decode('utf-8'))}")
+    log.debug(f"message received topic: {message.topic} {str(message.payload.decode('utf-8'))}")
     try:
         data = json.loads(str(message.payload.decode("utf-8")))
 
         if message.topic == set_point_class.smartmeter_topic:
-            logging.debug(f"update from smartmeter: {data['power']}")
+            log.debug(f"update from smartmeter: {data['power']}")
             set_point_class.update_sm_power(data['power']*-1)
         elif message.topic == set_point_class.bms1_topic:
-            logging.info(f"update from bms1: soc: {data['soc']}, voltage: {data['voltage']}")
+            log.info(f"update from bms1: soc: {data['soc']}, voltage: {data['voltage']}")
             set_point_class.update_bms_soc(data['soc'])
         elif message.topic == set_point_class.mppt_topic:
             set_point_class.update_mppt(data)
         elif message.topic == set_point_class.cmd_topic:
             set_point_class.call_cmd(data)
         elif message.topic == set_point_class.soc_min_topic:
-            logging.warning(f"update soc_min: {data}")
+            log.warning(f"update soc_min: {data}")
             set_point_class.config['VICTRON']['MIN_SOC'] = str(data)
         elif message.topic == set_point_class.soc_max_topic:
-            logging.warning(f"update soc_max: {data}")
+            log.warning(f"update soc_max: {data}")
             set_point_class.config['VICTRON']['MAX_SOC'] = str(data)
         else:
-            logging.info(f"unknown topic {message.topic}")
-            logging.info(f"not {set_point_class.config['SMARTMETER']['topic']}")
+            log.info(f"unknown topic {message.topic}")
+            log.info(f"not {set_point_class.config['SMARTMETER']['topic']}")
 
     except Exception as ex:
-        logging.error(ex, exc_info=True)
+        log.error(ex, exc_info=True)
 
 def read_config():
     global config
@@ -396,7 +399,7 @@ def read_config():
     config.read(config_file)
 
 def signal_hub_handler(signal, frame):
-    logging.warning("got hub signal")
+    log.warning("got hub signal")
     read_config()
 
 
@@ -413,7 +416,7 @@ def main():
     sysloghandler.setLevel(logging.WARNING)
     logging.getLogger().addHandler(sysloghandler)
 
-    logging.warning("start update_setpoint.py")
+    log.warning("start update_setpoint.py")
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", help="config.ini file", default="config.ini")
@@ -427,12 +430,12 @@ def main():
     set_point_class=SetPoint(mqtt_client, config)
 
     if config['MQTT'].get('user'):
-        logging.info("mqtt password given")
+        log.info("mqtt password given")
         mqtt_client.username_pw_set(config['MQTT']['user'], config['MQTT']['password'])
 
     mqtt_client.on_message = on_message
 
-    logging.info(f"connect to mqtt server {config['MQTT']['host']}")
+    log.info(f"connect to mqtt server {config['MQTT']['host']}")
     mqtt_client.connect(config['MQTT']['host'], int(config['MQTT']['port']))
 
     topics = {
@@ -447,7 +450,7 @@ def main():
     # Subscribe to each topic
     for topic_name, topic in topics.items():
         if topic:  # Check if topic is not None
-            logging.info(f"Subscribe {topic}")
+            log.info(f"Subscribe {topic}")
             mqtt_client.subscribe(topic)
         setattr(set_point_class, topic_name, topic)
 
@@ -462,7 +465,7 @@ def main():
         set_point_class.fech_data()
         return None
 
-    logging.info("start loop")
+    log.info("start loop")
     mqtt_client.loop_forever()
 
 if __name__ == '__main__':
