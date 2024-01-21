@@ -698,7 +698,7 @@ class VEBus:
             pos+=1
 
 
-        if frame_end and crc_byte:
+        if frame_end and crc_byte!=None:
             crc = 256 - sum(rx[:-1]) & 0xFF
             if crc == crc_byte:
                 logging.debug(f"receive_frame_2: valid frame {data}, length={len(data)}")
@@ -712,8 +712,8 @@ class VEBus:
                 logging.debug(f"receive_frame_2: invalid frame {rx}, length={len(rx)}")
                 return rx
         else:
-            logging.error(f"receive_frame_2: invalid frame {data}")
-            return data
+            logging.error(f"receive_frame_2: invalid frame, frame_end {frame_end}, crc {crc_byte}, data: {data}, hex: {self.format_hex(rx)}, length={len(data)}")
+            return rx
         
 
 
