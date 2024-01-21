@@ -139,7 +139,7 @@ class SetPoint:
         logging.info(self.mp2.data)
         data=self.mp2.data.copy()
         self.mp2_device_state_name=data.get('device_state_name',None)
-
+        victron_ok=False
 
         if not self.last_bms_soc_data or time.time()-self.last_bms_soc_data > 60:  # last bms data older than 5 minutes
             self.bms_soc=data.get('soc',0)
@@ -185,10 +185,11 @@ class SetPoint:
             data['inv_p_in']=0
 
         bat_u=data.get('bat_u',0)
+        if 'bat_u' in data and 'inv_p' in data and 'bat_p' in data:
+            victron_ok=True
 
         rc=self.mqtt_client.publish(self.config['VICTRON']['topic'], json.dumps(data))
         logging.debug(rc)
-
 
 #        batu_hyst=52.3 - 0.5 if self.mp2_invert else 0
 #        if self.bms_soc < 21 and data.get('bat_u',0)>batu_hyst:
@@ -230,7 +231,7 @@ class SetPoint:
 
         self.counter+=1
 
-        if self.counter > 10:
+        if self.counter > 10 and victron_ok:
             self.touch_file()
             self.counter=0
 
