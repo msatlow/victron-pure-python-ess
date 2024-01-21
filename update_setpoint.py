@@ -343,23 +343,21 @@ class SetPoint:
 
     def call_cmd(self, data):
         logging.info(f"got cmd: {data}")
-        match data.get('cmd'):
-            case 'reset':
-                logging.info("reset mp2")
-                self.mp2.vebus.reset_device(0)
-            case 'sleep':
-                logging.info("sleep mp2")
-                self.mp2.vebus.sleep()
-            case 'wakeup':
-                logging.info("wakeup mp2")
-                self.mp2.vebus.wakeup()
-            case 'fetch_data':
-                logging.info("fetch data")
-                self.fech_data()
-
-            case _:
-                logging.warning(f"unknown cmd {data.get('cmd')}")
-
+        cmd = data.get('cmd')
+        if cmd == 'reset':
+            logging.info("reset mp2")
+            self.mp2.vebus.reset_device(0)
+        elif cmd == 'sleep':
+            logging.info("sleep mp2")
+            self.mp2.vebus.sleep()
+        elif cmd == 'wakeup':
+            logging.info("wakeup mp2")
+            self.mp2.vebus.wakeup()
+        elif cmd == 'fetch_data':
+            logging.info("fetch data")
+            self.fetch_data()
+        else:
+            logging.warning(f"unknown cmd {cmd}")
 
 def on_message(mqtt_client, set_point_class, message):
     logging.debug(f"message received topic: {message.topic} {str(message.payload.decode('utf-8'))}")
