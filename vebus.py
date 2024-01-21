@@ -115,7 +115,7 @@ class VEBus:
 
             led_info = self.make_led_names(led_light | led_blink)
 
-            self.log.info("led_light=0x{:02X} led_blink=0x{:02X}".format(led_light, led_blink))
+            self.log.debug("led_light=0x{:02X} led_blink=0x{:02X}".format(led_light, led_blink))
             return {'led_light': led_light, 'led_blink': led_blink, 'led_info': led_info}
         except IOError:
             self.serial = None
@@ -151,7 +151,7 @@ class VEBus:
             self.send_frame('F', [phase])
             rx = self.receive_generic_frame(0x20)
             
-            logging.info(self.format_hex(rx))
+            self.log.debug(f"get_ac_info({phase}) => {self.format_hex(rx)}")
 
             bf_factor, inv_factor, device_state_id, phase_info, mains_u, mains_i, inv_u, inv_i, mains_period = struct.unpack(
 #                "<BBxBBhhhhB", rx)
@@ -262,7 +262,7 @@ class VEBus:
                  'bat_i': round(bat_i / 10, 1),
                  'bat_p': round(bat_u / 100 * bat_i / 10),
                  'soc': round(soc / 2, 1)}
-            self.log.info("read_snapshot: {}".format(r))
+            self.log.debug("read_snapshot: {}".format(r))
             return r
         except IOError:
             self.serial = None
@@ -291,7 +291,7 @@ class VEBus:
             for i, ram_var in enumerate(ram_vars):
                 print(f"unpach: {frame[4+i*2:4+i*2+2]}")
                 v=struct.unpack("<h", frame[4+i*2:4+i*2+2])[0]
-                self.log.info(f"read_snapshot: {ram_var}={v}")
+                self.log.debug(f"read_snapshot: {ram_var}={v}")
 
 #                ret.update({ram_var: v})
                 key = next((k for k, v in vebus_constants.RAM_IDS.items() if v == ram_var), f"unknown_{ram_var}")
@@ -328,7 +328,7 @@ class VEBus:
                 raise Exception(f"invalid response {frame[3]}")
             
             v=struct.unpack("<H", frame[5:])[0]
-            self.log.info(f"read_settings: {setting_id}={v}")
+            self.log.debug(f"read_settings: {setting_id}={v}")
             return v
 
         except IOError:
@@ -486,14 +486,14 @@ class VEBus:
             ok_count=0
             while len(waiting_frames)>0:
                 data = self.receive_mk2_frame()
-                logging.info("got frame {}".format(data))
+                self.log.debug("got frame {}".format(data))
                 if not data or len(data)<4:
                     logging.error(f"set_ess_power_3p: invalid frame {data}")
                     continue
                 if chr(data[2]) in waiting_frames:
                     waiting_frames.remove(chr(data[2]))
                     if data[3] == 0x87:
-                        self.log.info(f"set_ess_power {data[1]} done")
+                        self.log.debug(f"set_ess_power {data[1]} done")
                         ok_count+=1
                     else:
                         self.log.error(f"set_ess_power {data[1]} failed. got {chr(data[2])}")
@@ -514,7 +514,7 @@ class VEBus:
     def reset_device(self, device=0):
         data = struct.pack("<BBBBB", 0x8, 0, 0, device, 0)  # cmd, device_id (0=all devices)
         self.send_frame('F', data)
-        logging.info("reset done")
+        self.log.info("reset done")
 
     def set_bol(self, iBat_discharge):
 
@@ -523,7 +523,7 @@ class VEBus:
         data = struct.pack("<BBBh", 0x9, 0x03, 0x00, iBat_discharge_dA)  # cmd, device_id (0=all devices)
         self.send_frame('F', data)
         rx=self.receive_frame(b'\x07\x3c')
-        logging.info(f"set_bol done {rx}")
+        self.log.info(f"set_bol done {rx}")
 
     def set_ess_modules(self, disable_feed: bool, disable_charge: bool, phase: int):
         if self.serial is None:
