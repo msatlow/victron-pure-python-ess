@@ -11,6 +11,7 @@ import argparse
 import math
 import logging
 import logging.handlers
+import logging.config
 import sys
 import signal
 import datetime
@@ -187,7 +188,7 @@ class SetPoint:
             data['inv_p_in']=0
 
         bat_u=data.get('bat_u',0)
-        if 'bat_u' in data and 'inv_p' in data and 'bat_p' in data:
+        if ('bat_u', 'bat_i', 'mains_i', 'inv_i') in data:
             log.warning(f"got incomplete data from victron {data}")
             victron_ok=True
 
@@ -411,10 +412,14 @@ config_file=None
 # main program
 def main():
     global config_file
-    logging.basicConfig(level=logging.DEBUG, format='%(asctime)s %(levelname)s %(message)s', stream=sys.stdout)
-    sysloghandler=logging.handlers.SysLogHandler(address='/dev/log')
-    sysloghandler.setLevel(logging.WARNING)
-    logging.getLogger().addHandler(sysloghandler)
+
+    try:
+        logging.config.fileConfig('logging.ini')
+    except Exception as ex:
+        logging.basicConfig(level=logging.DEBUG, format='%(asctime)s %(levelname)s %(message)s', stream=sys.stdout)
+        sysloghandler=logging.handlers.SysLogHandler(address='/dev/log')
+        sysloghandler.setLevel(logging.WARNING)
+        logging.getLogger().addHandler(sysloghandler)
 
     log.warning("start update_setpoint.py")
 
