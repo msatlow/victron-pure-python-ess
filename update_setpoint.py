@@ -72,7 +72,7 @@ class SetPoint:
 
 
     def set_mp2_setpoint(self, setpoint, standby=False):
-
+        ret = True
         if standby:
             if not self.battery_empty_ts:
                 self.battery_empty_ts=time.time()
@@ -98,7 +98,7 @@ class SetPoint:
                 log.warning("mp2 is off, wakeup")
                 self.mp2.wakeup()
 
-            self.mp2.command(int(setpoint))
+            ret=self.mp2.command(int(setpoint))
 
         if setpoint>0:
             self.mp2_charge=True
@@ -109,6 +109,8 @@ class SetPoint:
         else:
             self.mp2_charge=False
             self.mp2_invert=False
+
+        return ret
 
     def custom_update(self, data):
         dspl = {"title": "Victron",
@@ -188,9 +190,11 @@ class SetPoint:
             data['inv_p_in']=0
 
         bat_u=data.get('bat_u',0)
-        if ('bat_u', 'bat_i', 'mains_i', 'inv_i') in data:
-            log.warning(f"got incomplete data from victron {data}")
+        if 'bat_u' in data and 'bat_i' in data and 'mains_i' in data and 'inv_i' in data:
             victron_ok=True
+        else:
+            log.warning(f"got incomplete data from victron {data}")
+
 
         rc=self.mqtt_client.publish(self.config['VICTRON']['topic'], json.dumps(data))
         log.debug(rc)
@@ -199,19 +203,19 @@ class SetPoint:
 #        if self.bms_soc < 21 and data.get('bat_u',0)>batu_hyst:
 #            log.info(f"soc {self.bms_soc} too low but battery full {data.get('bat_u')}")
 #            self.bms_soc=21
-
+        set_power_ok=False
         log.info(f"mp2_power={self.mp2_power}, soc: {self.bms_soc}, bat_u: {bat_u}")
         if self.mp2_power>0:
             max_soc_hyst=float(self.config['VICTRON']['MAX_SOC']) + (float(self.config['VICTRON']['SOC_HYSTERESIS']) if self.mp2_charge else 0)
             if self.bms_soc < max_soc_hyst:
                 log.info(f"wakeup and set power {self.mp2_power}")
             #  mp2.vebus.set_power(mp2_power)
-                self.set_mp2_setpoint(int(self.mp2_power), standby=False)
+                set_power_ok=self.set_mp2_setpoint(int(self.mp2_power), standby=False)
                 # self.mp2_charge=True
                 # self.mp2_invert=False
             else:
                 log.info(f"battery full not {self.bms_soc} < {max_soc_hyst}")
-                self.set_mp2_setpoint(0, standby=False)
+                set_power_ok=self.set_mp2_setpoint(0, standby=False)
                 # self.mp2_charge=False
                 # self.mp2_invert=False
         else:
@@ -219,14 +223,18 @@ class SetPoint:
             if self.bms_soc > min_soc_hyst :
                 log.info(f"set power {self.mp2_power}")
 
-                self.set_mp2_setpoint(int(self.mp2_power))
+                set_power_ok=self.set_mp2_setpoint(int(self.mp2_power))
                 # self.mp2_charge=False
                 # self.mp2_invert=True
             else:
                 log.info(f"battery empty not {self.bms_soc} > {min_soc_hyst}")
-                self.set_mp2_setpoint(0, True)
+                set_power_ok=self.set_mp2_setpoint(0, True)
                 # self.mp2_charge=False
                 # self.mp2_invert=False
+
+        if not set_power_ok:
+            log.warning("unable to set power")
+            victron_ok=False
 
         try:
             self.custom_update(data)
@@ -235,14 +243,18 @@ class SetPoint:
 
         self.counter+=1
 
-        if self.counter > 10 and victron_ok:
-            self.touch_file()
-            self.counter=0
+        if victron_ok:
+            if self.counter > 10:
+                self.touch_file()
+                self.counter=0
+        else:
+            log.warning("victron not ok")
 
     def touch_file(self):
         f = open("watchdog.txt", "w")
         f.write(f"Watchdog on {datetime.datetime.now()}")
         f.close()
+        log.debug("touch watchdog.txt")
 
     def get_ram_var_infos(self):
         (soc_sc, soc_offset) = self.mp2.vebus.read_ram_var_info(vebus_constants.RAM_IDS['ChargeState'])
