@@ -433,7 +433,7 @@ def main():
         sysloghandler.setLevel(logging.WARNING)
         logging.getLogger().addHandler(sysloghandler)
 
-    log.warning("start update_setpoint.py")
+    log.warning(f"start update_setpoint.py {datetime.datetime.now()}")
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", help="config.ini file", default="config.ini")
