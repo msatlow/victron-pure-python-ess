@@ -187,7 +187,7 @@ def read_and_send(shelf):
 
 
 if __name__ == '__main__':
-    if True:
+    while True:
         for shelf in range(1, 4):
             read_and_send(shelf)
     #    time.sleep(10)
