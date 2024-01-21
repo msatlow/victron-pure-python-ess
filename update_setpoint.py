@@ -364,26 +364,25 @@ def on_message(mqtt_client, set_point_class, message):
     try:
         data = json.loads(str(message.payload.decode("utf-8")))
 
-        match message.topic:
-            case set_point_class.smartmeter_topic:
-                logging.debug(f"update from smartmeter: {data['power']}")
-                set_point_class.update_sm_power(data['power']*-1)
-            case set_point_class.bms1_topic:
-                logging.info(f"update from bms1: soc: {data['soc']}, voltage: {data['voltage']}")
-                set_point_class.update_bms_soc(data['soc'])
-            case set_point_class.mppt_topic:
-                set_point_class.update_mppt(data)
-            case set_point_class.cmd_topic:
-                set_point_class.call_cmd(data)
-            case set_point_class.soc_min_topic:
-                logging.warning(f"update soc_min: {data}")
-                set_point_class.config['VICTRON']['MIN_SOC'] = str(data)
-            case set_point_class.soc_max_topic:
-                logging.warning(f"update soc_max: {data}")
-                set_point_class.config['VICTRON']['MAX_SOC'] = str(data)
-            case _:
-                logging.info(f"unknown topic {message.topic}")
-                logging.info(f"not {set_point_class.config['SMARTMETER']['topic']}")
+        if message.topic == set_point_class.smartmeter_topic:
+            logging.debug(f"update from smartmeter: {data['power']}")
+            set_point_class.update_sm_power(data['power']*-1)
+        elif message.topic == set_point_class.bms1_topic:
+            logging.info(f"update from bms1: soc: {data['soc']}, voltage: {data['voltage']}")
+            set_point_class.update_bms_soc(data['soc'])
+        elif message.topic == set_point_class.mppt_topic:
+            set_point_class.update_mppt(data)
+        elif message.topic == set_point_class.cmd_topic:
+            set_point_class.call_cmd(data)
+        elif message.topic == set_point_class.soc_min_topic:
+            logging.warning(f"update soc_min: {data}")
+            set_point_class.config['VICTRON']['MIN_SOC'] = str(data)
+        elif message.topic == set_point_class.soc_max_topic:
+            logging.warning(f"update soc_max: {data}")
+            set_point_class.config['VICTRON']['MAX_SOC'] = str(data)
+        else:
+            logging.info(f"unknown topic {message.topic}")
+            logging.info(f"not {set_point_class.config['SMARTMETER']['topic']}")
 
     except Exception as ex:
         logging.error(ex, exc_info=True)
