@@ -49,6 +49,7 @@ class MultiPlus2:
 
 
     def command(self, power):
+        ret = False
         if self.online:
             t = time.perf_counter()
             if self._wakeup and not self.cmd_lock_time:
@@ -56,20 +57,22 @@ class MultiPlus2:
                 self._wakeup = False
                 self.vebus.wakeup()
                 self.log.info("wakeup")
+                ret=True
             elif self._sleep and not self.cmd_lock_time:
                 self.cmd_lock_time = t + 3  # lock command for 3 seconds
                 self._sleep = False
                 self.vebus.sleep()
                 self.log.info("sleep")
+                ret=True
             else:
                 if abs(power) >= 1:
                     if self.power_delay_time is None:
                         self.log.info("set_power start {}".format(power))
                     self.log.debug("set_power {}".format(power))
-                    self.vebus.set_power(power)  # send command to multiplus
+                    ret=self.vebus.set_power(power)  # send command to multiplus
                     self.power_delay_time = t + 5  # send zero for 5seconds after last value >= 1
                 elif self.power_delay_time:
-                    self.vebus.set_power(0)
+                    ret=self.vebus.set_power(0)
                     if t > self.power_delay_time:
                         self.power_delay_time = None
                         self.log.debug("set_power zero trailing timer end")
@@ -77,6 +80,7 @@ class MultiPlus2:
             # reset command lock timer
             if self.cmd_lock_time and t > self.cmd_lock_time:
                 self.cmd_lock_time = None
+        return ret
 
     def update(self, pause_time=0.1):
         """
