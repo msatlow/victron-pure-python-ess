@@ -317,6 +317,11 @@ class SetPoint:
                 phase_dict[phase].update({f"setting_{setting_id}": ret})
 
 
+#        soc=72
+#        self.mp2.vebus.write_ram_var(vebus_constants.RAM_IDS['ChargeState'], 
+#                                     vebus_constants.RAM_IDS_write.get('ChargeState', lambda x: x)(soc))
+
+
         if self.mqtt_client:
             self.mqtt_client.publish(self.config['VICTRON']['fetch_data_topic'], json.dumps(phase_dict))
 

@@ -353,6 +353,9 @@ class VEBus:
             
             (sc, offset) =struct.unpack("<HH", frame[5:5+4])
             self.log.info(f"read_ram_var_info raw: {ram_var_id}={sc} {offset}")
+
+            # see https://github.com/diebietse/invertergui/blob/master/mk2driver/mk2.go
+
             signed = sc & 0x8000
             
             abs_sc = sc & 0x7FFF  # remove sign bit
@@ -369,6 +372,29 @@ class VEBus:
         except Exception as e:
             self.log.error("read_ram_var_info: {}".format(e), exc_info=True)
             return (None, None)
+
+
+    def write_ram_var(self, ram_var_id, value, phase=None):
+        if self.serial is None:
+            self.open_port()  # open port
+        
+        try:
+#            setting_id_encoded = struct.pack("<h", setting_id)
+            self.send_frame('X', [vebus_constants.WCommandWriteRAMVar, ram_var_id])
+            self.send_frame('X', [vebus_constants.WCommandWriteData, value])
+
+            frame = self.receive_xyz_frame('X')
+            
+            if frame[3] != vebus_constants.WReplySuccesfulRAMWrite:
+                raise Exception(f"invalid response {frame[3]}")
+
+        except IOError:
+            self.serial = None
+            self.log.error("serial port failed")
+        except Exception as e:
+            self.log.error("read_ram_var_info: {}".format(e), exc_info=True)
+            return (None, None)
+
 
 
     def set_power(self, power):
@@ -524,7 +550,7 @@ class VEBus:
             self.serial = None
             self.log.error("serial port failed")
         except Exception as e:
-            self.log.error("set_ess_power: power={} error={}".format(power, e))
+            self.log.error("set_ess_modules: error={}".format(e))
             return False
 
 

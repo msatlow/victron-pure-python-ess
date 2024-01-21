@@ -31,6 +31,12 @@ MAX_SOC=98
 # e.g. topic from Victron MPPT 450
 mppt_topic=tele/mppt1/state
 
+cmd_topic=cmd/victron/ve
+soc_min_topic=cmd/victron/soc/min
+soc_max_topic=cmd/victron/soc/max
+fetch_data_topic=cmd/victron/fetch_data
+sleep_enabled=False
+
 
 # e.g. Victron MPPT RS 450
 [MPPT]

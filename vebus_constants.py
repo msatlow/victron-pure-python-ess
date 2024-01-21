@@ -70,7 +70,7 @@ RAM_IDS_scale = {
     "UBat": lambda x: x * 0.01,
     "IBat": lambda x: x * 0.01,
     "UBatRMS": lambda x: x * 0.01,
-    "InverterPeriodTime": lambda x: 1/ (x * 0.000510 + 0.256),
+    "InverterPeriodTime": lambda x: (x+256) * 0.0000510,
     "MainsPeriodTime": lambda x: 1/ (x * 0.0001024),
     "SignedACLoadCurrent": lambda x: x * 0.01,
     "VirtualSwitchPosition": lambda x: x & 0x8,
@@ -83,6 +83,11 @@ RAM_IDS_scale = {
     "InverterPower1Unfiltered": lambda x: x,
     "InverterPower2Unfiltered": lambda x: x,
     "OutputPowerUnfiltered": lambda x: x,
+}
+
+
+RAM_IDS_write= {
+    "ChargeState": lambda x: x * 2,
 }
 
 
