@@ -89,12 +89,12 @@ class MultiPlus2:
             self.connect()
 
         else:
-            self.vebus.send_snapshot_request()  # trigger snapshot
+            self.vebus.send_snapshot_request_old()  # trigger snapshot
             time.sleep(pause_time)
             part1 = self.vebus.get_ac_info()  # read ac infos and append to data dictionary
             time.sleep(pause_time)
             if part1:
-                part2 = self.vebus.read_snapshot()  # read snapshot infos and append to data dictionary
+                part2 = self.vebus.read_snapshot_old()  # read snapshot infos and append to data dictionary
                 time.sleep(pause_time)
                 if part2:
                     part3 = self.vebus.get_led()  # read led infos and append to data dictionary

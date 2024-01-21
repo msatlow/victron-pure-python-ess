@@ -17,7 +17,16 @@ def get_frame_checksum(frame: bytes):
    return sum
 
 
-def read_and_send():
+def     get_chk_sum(data):
+    sum = 0
+    for byte in data:
+        sum += byte
+    sum = ~sum
+    sum &= 0xFFFF
+    sum += 1
+    return sum
+
+def read_and_send(shelf):
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", help="config.ini file", default="config.ini")
@@ -37,12 +46,46 @@ def read_and_send():
 
         bms_data={}
 
-        seplos_cmd='~20004642E00201FD36\r\n'.encode()
+
+
+
+        seplos_get_protocol_version="~2001464F0000FD99$"
+        # ~ 
+        # 20 Protocol Version 2.0
+        # 01 Device Address 01
+        # 46 4F LiFePO4 BMS, 4FAcquisition of the communication protocol version number
+        # 00 00 length
+        # FD 99 Checksum
+        # $ End of Frame
+        seplos_get_manufacturer="~200246510000FDAC\n"
+        seplos_get_telemetry_data="~20014642E00201FD35$"
+        seplos_get_remote_communication_data="~20014644E00201FD33$"
+        # x=b'\x7E\x32\x30\x30\x32\x34\x36\x34\x32\x45\x30\x30\x32\x30\x32\x46\x44\x33\x33\x0D'
+        # y=b'\x7E\x32\x30\x30\x32\x34\x36\x34\x32\x45\x30\x30\x32\x30\x32'
+
+  
+        seplos_get_data=f"200{shelf}4642E0020{shelf}".encode()
+        chksum = get_chk_sum(seplos_get_data)
+        package = ("~" + seplos_get_data.decode() + "{:04X}".format(chksum) + "\r").encode()
+        # print(package)
+        # cs=""
+        # for b in package:
+        #     cs+=hex(b)+","
+        # print(cs)
+
+
+        
+
+
+   #     seplos_cmd='~20004642E00201FD36\r\n'.encode()
+     #   seplos_cmd=seplos_get_manufacturer.encode()
+        seplos_cmd=package
         print(seplos_cmd)
         ser.write(seplos_cmd)
         print("waiting for answer")
         #raw_frame=ser.readline()
-        raw_frame=ser.read_until(expected='\r')
+#        raw_frame=ser.read_until(expected='\r')
+        raw_frame=ser.read_until(expected='$')
         print(raw_frame)
         frame_data = raw_frame[1:len(raw_frame) - 5]
         frame_chksum = raw_frame[len(raw_frame) - 5:-1]
@@ -53,9 +96,11 @@ def read_and_send():
 
         fmt=">2s2sHHI"
         ver, adr, cid1, cid2, infolength = struct.unpack(fmt, frame_data[:struct.calcsize(fmt)])
-        print(f"ver {ver}, adr {adr}, cid1 {cid1}, cid2 {cid2}, infolength {infolength}")
+        print(f"ver {ver}, adr {adr}, cid1 0x{cid1:02x}, cid2 0x{cid2:02x}, infolength 0x{infolength:02x}")
         infolength1=(infolength & 0xFFF0) >> 4
         print(infolength1)
+        print(f"infolength1 {infolength1}")
+        print(f"start of data {struct.calcsize(fmt)}")
         info=frame_data[struct.calcsize(fmt):]
 
         print(info)
@@ -125,8 +170,11 @@ def read_and_send():
         bms_data['port_voltage']=port_voltage
 
         print(json.dumps(bms_data))
-        (rc,mqttid) = client.publish(config['BMS1']['topic'], json.dumps(bms_data))
-        print(f"Publish RC: {rc}")
+        topic=config['BMS1']['topic']
+        if shelf>1:
+            topic=topic+"/"+str(shelf)
+        (rc,mqttid) = client.publish(topic, json.dumps(bms_data))
+        print(f"Publish to {topic} RC: {rc}")
 
     except Exception as ex:
         print(ex)
@@ -140,5 +188,6 @@ def read_and_send():
 
 if __name__ == '__main__':
     while True:
-        read_and_send()
-        time.sleep(10)
+        for shelf in range(1, 4):
+            read_and_send(shelf)
+    #    time.sleep(10)
