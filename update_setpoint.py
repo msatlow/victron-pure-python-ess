@@ -17,6 +17,7 @@ import signal
 import datetime
 import pprint
 import vebus_constants
+from vebus import VEBus
 
 log = logging.getLogger(__name__)
 
@@ -26,7 +27,8 @@ MAX_VICTRON_RAMP=400
 
 class SetPoint:
     def __init__(self, mqtt_client, config):
-        self.mp2=MultiPlus2(config['VICTRON']['serial_port'])
+        self.vebus = VEBus(port=config['VICTRON']['serial_port'], log='vebus')
+        self.connect()
         self.mp2_power=0
         self.mp2_power_old=0
         self.mp2_charge=False
@@ -80,25 +82,22 @@ class SetPoint:
             if self.config.getboolean('VICTRON','sleep_enabled', fallback=False):
                 if self.battery_empty_ts and time.time()-self.battery_empty_ts > self.config.getint('VICTRON','SLEEP_TIMEOUT', fallback=3600):
                     log.warning("battery empty for 5 minutes, go to standby")
-                    self.mp2.sleep()
-                    self.mp2.command(0)
+                    self.vebus.sleep()
+
                     self.mp2_standby=True
                     self.battery_empty_ts=None
-                # else:
-            #     self.mp2.command(0)               # required???
-
             
         else:
             if self.mp2_standby:
                 log.warning("wakeup mp2 from standby")
-                self.mp2.wakeup()
+                self.vebus.wakeup()
                 self.mp2_standby=False
             
             if self.mp2_device_state_name=='off':
                 log.warning("mp2 is off, wakeup")
-                self.mp2.wakeup()
+                self.vebus.wakeup()
 
-            ret=self.mp2.command(int(setpoint))
+            ret=self.vebus.set_power(int(setpoint))
 
         if setpoint>0:
             self.mp2_charge=True
@@ -137,12 +136,11 @@ class SetPoint:
 
     def update_sm_power(self, sm_power):
         # multiplus2
-        if not self.mp2:
-            log.error("no mp2")
-            return
-        self.mp2.update()
-        log.info(self.mp2.data)
-        data=self.mp2.data.copy()
+        # if not self.mp2:
+        #     log.error("no mp2")
+        #     return
+        data=self.get_data()
+
         self.mp2_device_state_name=data.get('device_state_name',None)
         victron_ok=False
 
@@ -209,28 +207,19 @@ class SetPoint:
             max_soc_hyst=float(self.config['VICTRON']['MAX_SOC']) + (float(self.config['VICTRON']['SOC_HYSTERESIS']) if self.mp2_charge else 0)
             if self.bms_soc < max_soc_hyst:
                 log.info(f"wakeup and set power {self.mp2_power}")
-            #  mp2.vebus.set_power(mp2_power)
                 set_power_ok=self.set_mp2_setpoint(int(self.mp2_power), standby=False)
-                # self.mp2_charge=True
-                # self.mp2_invert=False
             else:
                 log.info(f"battery full not {self.bms_soc} < {max_soc_hyst}")
                 set_power_ok=self.set_mp2_setpoint(0, standby=False)
-                # self.mp2_charge=False
-                # self.mp2_invert=False
         else:
             min_soc_hyst = float(self.config['VICTRON']['MIN_SOC']) - (float(self.config['VICTRON']['SOC_HYSTERESIS']) if self.mp2_invert else 0)
             if self.bms_soc > min_soc_hyst :
                 log.info(f"set power {self.mp2_power}")
 
                 set_power_ok=self.set_mp2_setpoint(int(self.mp2_power))
-                # self.mp2_charge=False
-                # self.mp2_invert=True
             else:
                 log.info(f"battery empty not {self.bms_soc} > {min_soc_hyst}")
                 set_power_ok=self.set_mp2_setpoint(0, True)
-                # self.mp2_charge=False
-                # self.mp2_invert=False
 
         if not set_power_ok:
             log.warning("unable to set power")
@@ -257,21 +246,21 @@ class SetPoint:
         log.debug("touch watchdog.txt")
 
     def get_ram_var_infos(self):
-        (soc_sc, soc_offset) = self.mp2.vebus.read_ram_var_info(vebus_constants.RAM_IDS['ChargeState'])
+        (soc_sc, soc_offset) = self.vebus.read_ram_var_info(vebus_constants.RAM_IDS['ChargeState'])
         print(f"soc_sc: {soc_sc}, soc_offset: {soc_offset}")
 
-        (sc, offset) = self.mp2.vebus.read_ram_var_info(vebus_constants.RAM_IDS['UBat'])
+        (sc, offset) = self.vebus.read_ram_var_info(vebus_constants.RAM_IDS['UBat'])
         print(f"ubat: soc_sc: {sc}, soc_offset: {offset}")
 
-        (sc, offset) = self.mp2.vebus.read_ram_var_info(vebus_constants.RAM_IDS['UMainsRMS'])
+        (sc, offset) = self.vebus.read_ram_var_info(vebus_constants.RAM_IDS['UMainsRMS'])
         print(f"UMainsRMS: sc: {sc}, offset: {offset}")
 
 
 
     def fech_data(self):
-        self.mp2.update()
-        data=self.mp2.data
-        print(data)
+#        self.mp2.update()
+#        data=self.mp2.data
+#        print(data)
 
 
 #        infos=self.get_ram_var_infos()
@@ -281,7 +270,7 @@ class SetPoint:
 
         for phase in range (1,4):
             print(f"Phase {phase}")
-            ac_info = self.mp2.vebus.get_ac_info(phase)
+            ac_info = self.vebus.get_ac_info(phase)
             print(ac_info)
             phase_dict[phase].update({"ac_info": ac_info })
 
@@ -289,12 +278,12 @@ class SetPoint:
             ids = list(filter(lambda x: x not in [10], range(page*5, page*5+5)))        # 10 cannot be read, virtual switches
 
             print(f"ids: {ids}")
-            self.mp2.vebus.send_snapshot_request(ids)
+            self.vebus.send_snapshot_request(ids)
 #            time.sleep(0.1)
             for phase in range(1,4):
                 try:
                     print(f"Phase {phase}")
-                    ret = self.mp2.vebus.read_snapshot(ids, phase=phase)
+                    ret = self.vebus.read_snapshot(ids, phase=phase)
                     print(ret)
                     if ret:
                         phase_dict[phase].update(ret)
@@ -308,14 +297,14 @@ class SetPoint:
 #        settings_to_read = [0, 1, 2, 3, 4, 14, 64]
         
         for phase in range(1,4):
-            flag0_15 = self.mp2.vebus.read_settings(0, phase=phase)
+            flag0_15 = self.vebus.read_settings(0, phase=phase)
             flag0_16_text = '{0:016b}'.format(flag0_15)
             phase_dict[phase].update({f"flag0_16_text": flag0_16_text})
 
             for i, bit in enumerate(reversed(flag0_16_text), start=0):
                 print(f"bit {i} = {'true' if bit == '1' else 'false'}")
 
-            flag16_31 = self.mp2.vebus.read_settings(1, phase=phase)
+            flag16_31 = self.vebus.read_settings(1, phase=phase)
             flag16_31_text = '{0:016b}'.format(flag16_31)
             phase_dict[phase].update({f"flag16_31_text": flag16_31_text})
 
@@ -326,7 +315,7 @@ class SetPoint:
         for setting_id in settings_to_read:
             print(f"setting {setting_id}")
             for phase in range(1,2):
-                ret = self.mp2.vebus.read_settings(setting_id, phase=phase)
+                ret = self.vebus.read_settings(setting_id, phase=phase)
                 print(f"phase {phase} setting {setting_id} = {ret}, {bin(ret)} {int(ret)}")
                 # bit_string = bin(ret)[2:]  # Remove '0b' prefix
                 # for i, bit in enumerate(bit_string, start=1):
@@ -335,21 +324,21 @@ class SetPoint:
 
 
 #        soc=72
-#        self.mp2.vebus.write_ram_var(vebus_constants.RAM_IDS['ChargeState'], 
+#        self.vebus.write_ram_var(vebus_constants.RAM_IDS['ChargeState'], 
 #                                     vebus_constants.RAM_IDS_write.get('ChargeState', lambda x: x)(soc))
 
 
         if self.mqtt_client:
             self.mqtt_client.publish(self.config['VICTRON']['fetch_data_topic'], json.dumps(phase_dict))
 
-# #        ret = self.mp2.vebus.set_power_3p(100,100,100)
-        # print(self.mp2.vebus.set_power_phase(0,1))
-        # print(self.mp2.vebus.set_power_phase(0,2))
-        # print(self.mp2.vebus.set_power_phase(0,3))
+# #        ret = self.vebus.set_power_3p(100,100,100)
+        # print(self.vebus.set_power_phase(0,1))
+        # print(self.vebus.set_power_phase(0,2))
+        # print(self.vebus.set_power_phase(0,3))
 
-      #  self.mp2.vebus.reset_device(0)
+      #  self.vebus.reset_device(0)
 
-#        self.mp2.vebus.set_ess_modules(disable_feed=True, disable_charge=True, phase=1)
+#        self.vebus.set_ess_modules(disable_feed=True, disable_charge=True, phase=1)
 
         pprint.pprint(phase_dict)
 
@@ -357,19 +346,79 @@ class SetPoint:
         print("end")
   
 
+    def get_data(self, pause_time=0.1):
+        """
+        Read all information from Multiplus-II
+
+        :param pause_time: pause time between commands
+        :return: dictionary
+        """
+        # if not self.online:
+        #     self.connect()
+
+        self.vebus.send_snapshot_request_old()  # trigger snapshot
+        time.sleep(pause_time)
+        part1 = self.vebus.get_ac_info()  # read ac infos and append to data dictionary
+        time.sleep(pause_time)
+        if part1:
+            part2 = self.vebus.read_snapshot_old()  # read snapshot infos and append to data dictionary
+            time.sleep(pause_time)
+            if part2:
+                part3 = self.vebus.get_led()  # read led infos and append to data dictionary
+                if part3:
+                    data = {}
+                    data.update(part1)
+                    data.update(part2)
+                    data.update(part3)
+                    led = data.get('led_light', 0) + data.get('led_blink', 0)
+                    state = data.get('device_state_id', None)
+                    if state == 2:
+                        data['state'] = 'sleep'
+                    elif led & 0x40:
+                        data['state'] = 'low_bat'
+                    elif led & 0x80:
+                        data['state'] = 'temperature'
+                    elif led & 0x20:
+                        data['state'] = 'overload'
+                    elif state == 8 or state == 9:
+                        data['state'] = 'on'
+                    elif state == 4:
+                        data['state'] = 'wait'
+                    else:
+                        data['state'] = '?{}?0x{:02X}?'.format(state, led)
+
+                    self.data = data
+#                    self.data_timeout = time.perf_counter() + self.timeout  # reset data timeout with valid rx
+
+        return data
+
+    def connect(self):
+        version = self.vebus.get_version()  # hide errors while scanning
+        if version:
+            self.data = {'mk2_version': version}  # init dictionary
+            time.sleep(0.1)
+            if self.vebus.init_address():
+                time.sleep(0.1)
+                if self.vebus.scan_ess_assistant():
+                    log.info("ess assistant setpoint ramid={}".format(self.vebus.ess_setpoint_ram_id))
+                    self.data['state'] = 'init'
+                    self.online = True
+#                    self.data_timeout = time.perf_counter() + self.timeout  # start timeout
+
+
 
     def call_cmd(self, data):
         log.info(f"got cmd: {data}")
         cmd = data.get('cmd')
         if cmd == 'reset':
             log.info("reset mp2")
-            self.mp2.vebus.reset_device(0)
+            self.vebus.reset_device(0)
         elif cmd == 'sleep':
             log.info("sleep mp2")
-            self.mp2.vebus.sleep()
+            self.vebus.sleep()
         elif cmd == 'wakeup':
             log.info("wakeup mp2")
-            self.mp2.vebus.wakeup()
+            self.vebus.wakeup()
         elif cmd == 'fetch_data':
             log.info("fetch data")
             self.fetch_data()
