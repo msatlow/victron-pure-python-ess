@@ -289,9 +289,9 @@ class VEBus:
             ret = {}
 
             for i, ram_var in enumerate(ram_vars):
-                print(f"unpach: {frame[4+i*2:4+i*2+2]}")
+#                print(f"unpach: {frame[4+i*2:4+i*2+2]}")
                 v=struct.unpack("<h", frame[4+i*2:4+i*2+2])[0]
-                self.log.debug(f"read_snapshot: {ram_var}={v}")
+#                self.log.debug(f"read_snapshot: {ram_var}={v}")
 
 #                ret.update({ram_var: v})
                 key = next((k for k, v in vebus_constants.RAM_IDS.items() if v == ram_var), f"unknown_{ram_var}")
@@ -432,6 +432,9 @@ class VEBus:
         if self.serial is None:
             self.open_port()  # open port
 
+        self.log.info(f"set_power_phase {power} {phase}")
+
+        assert self.ess_setpoint_ram_id is not None
         try:
             data = struct.pack("<BBBhB", 0x37, 0x00, self.ess_setpoint_ram_id, -power, phase-1)  # cmd, flags, id, power
             self.send_frame('x', data)
@@ -444,7 +447,7 @@ class VEBus:
             
             if chr(data[2]) in 'X':
                 if data[3] == 0x87:
-                    self.log.info(f"set_ess_power {data[1]} done")
+                    self.debug.info(f"set_ess_power sucessful")
                     return True
                 else:
                     self.log.error(f"set_ess_power {data[1]} failed. got {chr(data[2])}")
@@ -464,6 +467,8 @@ class VEBus:
     def set_power_3p(self, power_L1, power_L2, power_L3):
         if self.serial is None:
             self.open_port()  # open port
+
+        assert self.ess_setpoint_ram_id is not None
 
         try:
             data = struct.pack("<BBBhB", 0x37, 0x00, self.ess_setpoint_ram_id, -power_L1, 0x0)  # cmd, flags, id, power
