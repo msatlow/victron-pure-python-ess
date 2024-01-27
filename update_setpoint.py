@@ -45,6 +45,8 @@ class SetPoint:
         self.mppt_power=0
         self.last_mppt_power=None
         self.counter=0
+        self.current_phase=1
+        self.phases=3
         
 
     def update_bms_soc(self, bms_soc):
@@ -98,6 +100,12 @@ class SetPoint:
                 self.vebus.wakeup()
 
             ret=self.vebus.set_power(int(setpoint))
+#            ret=self.vebus.set_power_phase(int(setpoint), phase=2)
+#            ret=self.vebus.set_power_phase(int(setpoint/3), phase=1)
+#            ret=self.vebus.set_power_phase(int(setpoint/3), phase=2)
+#            ret=self.vebus.set_power_phase(int(setpoint/3), phase=3)
+                
+#            ret=self.vebus.set_power_3p(int(setpoint/3),int(setpoint/3),int(setpoint/3))
 
         if setpoint>0:
             self.mp2_charge=True
@@ -225,6 +233,13 @@ class SetPoint:
             log.warning("unable to set power")
             victron_ok=False
 
+
+        
+        data=self.get_data(self.current_phase)
+        data['setpoint']=self.mp2_power
+        rc=self.mqtt_client.publish(f"{self.config['VICTRON']['topic']}/{self.current_phase}", json.dumps(data))
+        self.current_phase = self.current_phase + 1 if self.current_phase < self.phases else 1
+
         try:
             self.custom_update(data)
         except Exception as ex:
@@ -346,51 +361,108 @@ class SetPoint:
         print("end")
   
 
-    def get_data(self, pause_time=0.1):
-        """
-        Read all information from Multiplus-II
+    def get_data(self, phase=1):
+        start_time=time.perf_counter()
 
-        :param pause_time: pause time between commands
-        :return: dictionary
-        """
-        # if not self.online:
-        #     self.connect()
+        ac_dict={}
+        snapshot_dict={}
 
-        self.vebus.send_snapshot_request_old()  # trigger snapshot
-        time.sleep(pause_time)
-        part1 = self.vebus.get_ac_info()  # read ac infos and append to data dictionary
-        time.sleep(pause_time)
-        if part1:
-            part2 = self.vebus.read_snapshot_old()  # read snapshot infos and append to data dictionary
-            time.sleep(pause_time)
-            if part2:
-                part3 = self.vebus.get_led()  # read led infos and append to data dictionary
-                if part3:
-                    data = {}
-                    data.update(part1)
-                    data.update(part2)
-                    data.update(part3)
-                    led = data.get('led_light', 0) + data.get('led_blink', 0)
-                    state = data.get('device_state_id', None)
-                    if state == 2:
-                        data['state'] = 'sleep'
-                    elif led & 0x40:
-                        data['state'] = 'low_bat'
-                    elif led & 0x80:
-                        data['state'] = 'temperature'
-                    elif led & 0x20:
-                        data['state'] = 'overload'
-                    elif state == 8 or state == 9:
-                        data['state'] = 'on'
-                    elif state == 4:
-                        data['state'] = 'wait'
-                    else:
-                        data['state'] = '?{}?0x{:02X}?'.format(state, led)
+        snapshot_ids = [vebus_constants.RAM_IDS['InverterPower2'], 
+                        vebus_constants.RAM_IDS['OutputPower'],
+                        vebus_constants.RAM_IDS['UBat'],
+                        vebus_constants.RAM_IDS['IBat'],
+                        vebus_constants.RAM_IDS['ChargeState'],
+                        vebus_constants.RAM_IDS['InverterPower1']]  # up to 6x
+        
+        self.vebus.send_snapshot_request(snapshot_ids)  # trigger snapshot
 
-                    self.data = data
+        ac_dict = self.vebus.get_ac_info(phase)
+
+        ac_info_time=time.perf_counter()
+
+        snapshot_data = self.vebus.read_snapshot(snapshot_ids, phase=phase)
+        if snapshot_data:
+            snapshot_dict.update(snapshot_data)
+
+        # snapshot_ids = [vebus_constants.RAM_IDS[''], 
+        #                 vebus_constants.RAM_IDS[''],
+        #                 vebus_constants.RAM_IDS[''],
+        #                 vebus_constants.RAM_IDS[''],
+        #                 vebus_constants.RAM_IDS[''],
+        #                 vebus_constants.RAM_IDS['']]  # up to 6x
+        # self.vebus.send_snapshot_request(snapshot_ids)  # trigger snapshot            
+        # snapshot_data = self.vebus.read_snapshot(snapshot_ids, phase=phase)
+        # if snapshot_data:
+        #     snapshot_dict.update(snapshot_data)
+
+
+        # for compatibiliy with old code
+        snapshot_dict['bat_u']=snapshot_dict.get('UBat',0)
+        snapshot_dict['bat_i']=snapshot_dict.get('IBat',0)
+        snapshot_dict['bat_p']=round(snapshot_dict.get('UBat',0)*snapshot_dict.get('IBat',0))
+        snapshot_dict['inv_p']=-1*snapshot_dict.get('InverterPower2',0)
+        snapshot_dict['out_p']=snapshot_dict.get('OutputPower',0)
+        snapshot_dict['soc']=snapshot_dict.get('ChargeState',0)
+
+        # snapshot_ids = [1,2,3,4,5,6]  # up to 6x
+        # self.vebus.send_snapshot_request(snapshot_ids)  # trigger snapshot
+        # snapshot_data = self.vebus.read_snapshot(snapshot_ids, phase=phase)
+        # if snapshot_data:
+        #     snapshot_dict.update(snapshot_data)
+
+        # snapshot_ids = [7,8,9,11,12,13]  # up to 6x
+        # self.vebus.send_snapshot_request(snapshot_ids)  # trigger snapshot
+        # snapshot_data = self.vebus.read_snapshot(snapshot_ids, phase=phase)
+        # if snapshot_data:
+        #     snapshot_dict.update(snapshot_data)
+
+        # snapshot_ids = [14,15,16]  # up to 6x
+        # self.vebus.send_snapshot_request(snapshot_ids)  # trigger snapshot
+        # snapshot_data = self.vebus.read_snapshot(snapshot_ids, phase=phase)
+        # if snapshot_data:
+        #     snapshot_dict.update(snapshot_data)
+
+
+        # part3 = self.vebus.get_led()  # read led infos and append to data dictionary
+        #     if part3:
+        #             data = {}
+        #             data.update(part1)
+        #             data.update(part2)
+        #             data.update(part3)
+        #             led = data.get('led_light', 0) + data.get('led_blink', 0)
+        #             state = data.get('device_state_id', None)
+        #             if state == 2:
+        #                 data['state'] = 'sleep'
+        #             elif led & 0x40:
+        #                 data['state'] = 'low_bat'
+        #             elif led & 0x80:
+        #                 data['state'] = 'temperature'
+        #             elif led & 0x20:
+        #                 data['state'] = 'overload'
+        #             elif state == 8 or state == 9:
+        #                 data['state'] = 'on'
+        #             elif state == 4:
+        #                 data['state'] = 'wait'
+        #             else:
+        #                 data['state'] = '?{}?0x{:02X}?'.format(state, led)
+
+        #             self.data = data
 #                    self.data_timeout = time.perf_counter() + self.timeout  # reset data timeout with valid rx
 
+
+        data={}
+        data.update(ac_dict)
+        data.update(snapshot_dict)
+
+        end_time=time.perf_counter()
+        log.info(f"get_data took {end_time-start_time} seconds")
+        log.info(f"ac_info took {ac_info_time-start_time} seconds")
+        log.info(f"snapshot took {end_time-ac_info_time} seconds")
+
+        pprint.pprint(data)
+
         return data
+    
 
     def connect(self):
         version = self.vebus.get_version()  # hide errors while scanning
@@ -403,8 +475,6 @@ class SetPoint:
                     log.info("ess assistant setpoint ramid={}".format(self.vebus.ess_setpoint_ram_id))
                     self.data['state'] = 'init'
                     self.online = True
-#                    self.data_timeout = time.perf_counter() + self.timeout  # start timeout
-
 
 
     def call_cmd(self, data):
