@@ -36,9 +36,6 @@ class SetPoint:
         self.vebus = VEBus(port=config['VICTRON']['serial_port'], log='vebus')
         self.connect()
 
-        if self.vebus.online and self.sd_notify.enabled():
-            self.sd_notify.status("VE Bus online")
-            self.sd_notify.ready()
 
         self.mp2_power=0
         self.mp2_power_old=0
@@ -56,6 +53,24 @@ class SetPoint:
         self.mppt_power=0
         self.last_mppt_power=None
         self.counter=0
+
+        ac_info=self.vebus.get_ac_info(phase=1)  # trigger first ac info
+        if ac_info:
+            if ac_info.get('phase_info')==vebus_constants.PHASE_INFO['L1_3ph']:
+                log.info("3 phase system found")
+                self.phases=3
+            else:
+                log.info("1 phase system found")
+                self.phases=1
+        else:
+            logging.fatal("Unable to detect phase info")           
+            exit(1)
+
+        if self.online and self.sd_notify.enabled():
+            self.sd_notify.status(f"VE Bus online, {self.phases} phases detected")
+            self.sd_notify.ready()
+
+
         self.current_phase=1
         self.phases=3
         self.phase_dict={1:{}, 2:{}, 3:{}}
@@ -513,6 +528,14 @@ class SetPoint:
                     log.info("ess assistant setpoint ramid={}".format(self.vebus.ess_setpoint_ram_id))
                     self.data['state'] = 'init'
                     self.online = True
+                    return True
+                else:
+                    log.fatal("unable to scan ess assistant")
+            else:
+                log.fatal("unable to init address")
+        else:
+            log.fatal("vebus: got no version")
+        return False
 
 
     def call_cmd(self, data):
