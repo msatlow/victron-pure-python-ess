@@ -374,16 +374,20 @@ class SetPoint:
             for i, bit in enumerate(reversed(flag16_31_text), start=16):
                 print(f"bit {i} = {'true' if bit == '1' else 'false'}")
 
-        settings_to_read = [2, 11, 15, 64]
+#        settings_to_read = [2, 11, 15, 64]
+        settings_to_read = range(2,66)
         for setting_id in settings_to_read:
             print(f"setting {setting_id}")
             for phase in range(1,2):
-                ret = self.vebus.read_settings(setting_id, phase=phase)
-                print(f"phase {phase} setting {setting_id} = {ret}, {bin(ret)} {int(ret)}")
-                # bit_string = bin(ret)[2:]  # Remove '0b' prefix
-                # for i, bit in enumerate(bit_string, start=1):
-                #     print(f"bit {i-1} = {'true' if bit == '1' else 'false'}")
-                phase_dict[phase].update({f"setting_{setting_id}": ret})
+                try:
+                    ret = self.vebus.read_settings(setting_id, phase=phase)
+                    print(f"phase {phase} setting {setting_id} = {ret}, {bin(ret)} {int(ret)}")
+                    # bit_string = bin(ret)[2:]  # Remove '0b' prefix
+                    # for i, bit in enumerate(bit_string, start=1):
+                    #     print(f"bit {i-1} = {'true' if bit == '1' else 'false'}")
+                    phase_dict[phase].update({f"setting_{setting_id}": ret})
+                except Exception as ex:
+                    log.error(f"unable to read setting {setting_id} phase {phase}")
 
 
 #        soc=72
@@ -554,6 +558,10 @@ class SetPoint:
         elif cmd == 'switch_on':
             log.info("fetch switch_on")
             self.vebus.set_switch(switch_state=3)
+        # elif cmd == 'ignore_ac_input':
+        #     log.info("fetch ignore_ac_input")
+        #     self.vebus.write_ram_var(vebus_constants.RAM_IDS['IgnoreACInputState'], 1)
+
         else:
             log.warning(f"unknown cmd {cmd}")
 
