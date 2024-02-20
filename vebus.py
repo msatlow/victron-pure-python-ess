@@ -530,6 +530,18 @@ class VEBus:
         rx=self.receive_frame(b'\x07\x3c')
         self.log.info(f"set_bol done {rx}")
 
+    def set_switch(self, switch_state):
+        pot_value=255 # ignore
+        panel_scale=255 # ignore
+        flags=0x08 # do not send panel state
+        data = struct.pack("<BBBBB", switch_state, pot_value, panel_scale, 0x01, flags)
+        self.send_frame('S', data)
+        rx=self.receive_generic_frame(ord('S'))
+        if rx:
+            self.log.info(f"set_switch done {rx}")
+        else:
+            self.log.error(f"set_switch failed {rx}")
+
     def set_ess_modules(self, disable_feed: bool, disable_charge: bool, phase: int):
         if self.serial is None:
             self.open_port()  # open port
@@ -672,7 +684,7 @@ class VEBus:
         if frame[2] == ord(xyz):
             return frame
         else:
-            raise Exception("invalid frame {}".format(self.format_hex(frame)))
+            raise Exception("invalid frame {}, need {} but got {}".format(self.format_hex(frame), xyz, chr(frame[2])))
 
 
     def receive_mk2_frame(self, timeout=0.5):
@@ -751,11 +763,7 @@ class VEBus:
                 return rx
         else:
             logging.error(f"receive_frame_2: invalid frame, frame_end {frame_end}, crc {crc_byte}, data: {data}, hex: {self.format_hex(rx)}, length={len(data)}")
-            return rx
-        
-
-
-
+            return None
 
 
             # time.sleep(0.010)

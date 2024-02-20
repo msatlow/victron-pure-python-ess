@@ -59,9 +59,11 @@ class SetPoint:
             if ac_info.get('phase_info')==vebus_constants.PHASE_INFO['L1_3ph']:
                 log.info("3 phase system found")
                 self.phases=3
+                self.phase_dict={1:{}, 2:{}, 3:{}}
             else:
                 log.info("1 phase system found")
                 self.phases=1
+                self.phase_dict={1:{}}
         else:
             logging.fatal("Unable to detect phase info")           
             exit(1)
@@ -72,8 +74,6 @@ class SetPoint:
 
 
         self.current_phase=1
-        self.phases=3
-        self.phase_dict={1:{}, 2:{}, 3:{}}
         
 
     def update_bms_soc(self, bms_soc):
@@ -131,7 +131,7 @@ class SetPoint:
 #            ret=self.vebus.set_power_phase(int(setpoint/3), phase=1)
 #            ret=self.vebus.set_power_phase(int(setpoint/3), phase=2)
 #            ret=self.vebus.set_power_phase(int(setpoint/3), phase=3)
-            ret=self.vebus.set_power_phase(int(setpoint/3), phase=self.current_phase)
+            ret=self.vebus.set_power_phase(int(setpoint/self.phases), phase=self.current_phase)
                 
 #            ret=self.vebus.set_power_3p(int(setpoint/3),int(setpoint/3),int(setpoint/3))
 
@@ -204,7 +204,7 @@ class SetPoint:
         if self.mp2_power<self.mp2_power_old-MAX_VICTRON_RAMP:
             self.mp2_power=self.mp2_power_old-MAX_VICTRON_RAMP
 
-        log.info(f"mp2_power={self.mp2_power}, old: {self.mp2_power_old} sum: {sm_power}")
+        log.info(f"mp2_power={self.mp2_power}, old: {self.mp2_power_old} sum: {sm_power}, cur_phase: {self.current_phase}")
         
         if self.mp2_power>self.get_max_charge():
             self.mp2_power=self.get_max_charge()
@@ -325,30 +325,25 @@ class SetPoint:
 
 
 
-    def fech_data(self):
-#        self.mp2.update()
-#        data=self.mp2.data
-#        print(data)
-
+    def fetch_data(self):
 
 #        infos=self.get_ram_var_infos()
-#        return None
 
         phase_dict={1:{}, 2:{}, 3:{}}
 
-        for phase in range (1,4):
+        for phase in range (1,self.phases+1):
             print(f"Phase {phase}")
             ac_info = self.vebus.get_ac_info(phase)
             print(ac_info)
             phase_dict[phase].update({"ac_info": ac_info })
 
-        for page in range(0,4):
+        for page in range(0,4):     # 5x4 = 20 Settings
             ids = list(filter(lambda x: x not in [10], range(page*5, page*5+5)))        # 10 cannot be read, virtual switches
 
             print(f"ids: {ids}")
             self.vebus.send_snapshot_request(ids)
 #            time.sleep(0.1)
-            for phase in range(1,4):
+            for phase in range(1,self.phases+1):
                 try:
                     print(f"Phase {phase}")
                     ret = self.vebus.read_snapshot(ids, phase=phase)
@@ -364,12 +359,12 @@ class SetPoint:
 
 #        settings_to_read = [0, 1, 2, 3, 4, 14, 64]
         
-        for phase in range(1,4):
+        for phase in range(1,self.phases+1):
             flag0_15 = self.vebus.read_settings(0, phase=phase)
-            flag0_16_text = '{0:016b}'.format(flag0_15)
-            phase_dict[phase].update({f"flag0_16_text": flag0_16_text})
+            flag0_15_text = '{0:016b}'.format(flag0_15)
+            phase_dict[phase].update({f"flag0_15_text": flag0_15_text})
 
-            for i, bit in enumerate(reversed(flag0_16_text), start=0):
+            for i, bit in enumerate(reversed(flag0_15_text), start=0):
                 print(f"bit {i} = {'true' if bit == '1' else 'false'}")
 
             flag16_31 = self.vebus.read_settings(1, phase=phase)
@@ -553,6 +548,12 @@ class SetPoint:
         elif cmd == 'fetch_data':
             log.info("fetch data")
             self.fetch_data()
+        elif cmd == 'switch_inverter_only':
+            log.info("fetch switch_inverter_only")
+            self.vebus.set_switch(switch_state=2)
+        elif cmd == 'switch_on':
+            log.info("fetch switch_on")
+            self.vebus.set_switch(switch_state=3)
         else:
             log.warning(f"unknown cmd {cmd}")
 
