@@ -47,6 +47,7 @@ class SetPoint:
         self.counter=0
         self.current_phase=1
         self.phases=3
+        self.phase_dict={1:{}, 2:{}, 3:{}}
         
 
     def update_bms_soc(self, bms_soc):
@@ -99,11 +100,12 @@ class SetPoint:
                 log.warning("mp2 is off, wakeup")
                 self.vebus.wakeup()
 
-            ret=self.vebus.set_power(int(setpoint))
+#            ret=self.vebus.set_power(int(setpoint))
 #            ret=self.vebus.set_power_phase(int(setpoint), phase=2)
 #            ret=self.vebus.set_power_phase(int(setpoint/3), phase=1)
 #            ret=self.vebus.set_power_phase(int(setpoint/3), phase=2)
 #            ret=self.vebus.set_power_phase(int(setpoint/3), phase=3)
+            ret=self.vebus.set_power_phase(int(setpoint/3), phase=self.current_phase)
                 
 #            ret=self.vebus.set_power_3p(int(setpoint/3),int(setpoint/3),int(setpoint/3))
 
@@ -202,8 +204,8 @@ class SetPoint:
             log.warning(f"got incomplete data from victron {data}")
 
 
-        rc=self.mqtt_client.publish(self.config['VICTRON']['topic'], json.dumps(data))
-        log.debug(rc)
+        # rc=self.mqtt_client.publish(self.config['VICTRON']['topic'], json.dumps(data))
+        # log.debug(rc)
 
 #        batu_hyst=52.3 - 0.5 if self.mp2_invert else 0
 #        if self.bms_soc < 21 and data.get('bat_u',0)>batu_hyst:
@@ -211,6 +213,7 @@ class SetPoint:
 #            self.bms_soc=21
         set_power_ok=False
         log.info(f"mp2_power={self.mp2_power}, soc: {self.bms_soc}, bat_u: {bat_u}")
+        
         if self.mp2_power>0:
             max_soc_hyst=float(self.config['VICTRON']['MAX_SOC']) + (float(self.config['VICTRON']['SOC_HYSTERESIS']) if self.mp2_charge else 0)
             if self.bms_soc < max_soc_hyst:
@@ -228,6 +231,7 @@ class SetPoint:
             else:
                 log.info(f"battery empty not {self.bms_soc} > {min_soc_hyst}")
                 set_power_ok=self.set_mp2_setpoint(0, True)
+#                self.mp2_power=None
 
         if not set_power_ok:
             log.warning("unable to set power")
@@ -236,8 +240,29 @@ class SetPoint:
 
         
         data=self.get_data(self.current_phase)
-        data['setpoint']=self.mp2_power
+        data['setpoint']=self.mp2_power 
+        self.phase_dict[self.current_phase]=data
+
+        # publish phase data
         rc=self.mqtt_client.publish(f"{self.config['VICTRON']['topic']}/{self.current_phase}", json.dumps(data))
+
+        # publish accumulated data
+
+        accumulated_data={}
+        for key in self.phase_dict[1].keys():
+            value = self.phase_dict[1].get(key)
+            if isinstance(value, (int, float)) and key in ('IBat', 'InverterPower1', 'InverterPower1', 'OutputPower', 
+                                                           'bat_i', 'bat_p', 'inv_i', 'inv_p', 'inv_p_calc', 'mains_i', 'mains_p_calc', 
+                                                           'out_p', 'own_p_calc'):
+                accumulated_data[key]=sum([self.phase_dict[phase].get(key,0) for phase in range(1,len(self.phase_dict)+1)])
+            else:
+                accumulated_data[key]=value
+
+        print("accumulated data")
+        pprint.pprint(accumulated_data)
+
+        rc=self.mqtt_client.publish(self.config['VICTRON']['topic'], json.dumps(accumulated_data))
+
         self.current_phase = self.current_phase + 1 if self.current_phase < self.phases else 1
 
         try:
