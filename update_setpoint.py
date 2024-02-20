@@ -16,8 +16,10 @@ import sys
 import signal
 import datetime
 import pprint
+import sd_notify    # systemd notification for watchdog
 import vebus_constants
 from vebus import VEBus
+
 
 log = logging.getLogger(__name__)
 
@@ -27,8 +29,17 @@ MAX_VICTRON_RAMP=400
 
 class SetPoint:
     def __init__(self, mqtt_client, config):
+        self.sd_notify = sd_notify.Notifier()
+        if self.sd_notify.enabled():
+            self.sd_notify.status("Initialising VE Bus")
+        
         self.vebus = VEBus(port=config['VICTRON']['serial_port'], log='vebus')
         self.connect()
+
+        if self.vebus.online and self.sd_notify.enabled():
+            self.sd_notify.status("VE Bus online")
+            self.sd_notify.ready()
+
         self.mp2_power=0
         self.mp2_power_old=0
         self.mp2_charge=False
@@ -273,6 +284,8 @@ class SetPoint:
         self.counter+=1
 
         if victron_ok:
+            if self.sd_notify.enabled():
+                self.sd_notify.notify() # update watchdog
             if self.counter > 10:
                 self.touch_file()
                 self.counter=0
