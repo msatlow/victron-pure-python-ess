@@ -447,7 +447,7 @@ class VEBus:
             
             if chr(data[2]) in 'X':
                 if data[3] == 0x87:
-                    self.debug.info(f"set_ess_power sucessful")
+                    self.log.debug(f"set_ess_power sucessful")
                     return True
                 else:
                     self.log.error(f"set_ess_power {data[1]} failed. got {chr(data[2])}")
@@ -540,6 +540,39 @@ class VEBus:
                 ess_flag+=0x1
             if disable_feed:
                 ess_flag+=0x2
+# Description of the flags - copy of the source code
+# _cmdDisableCharge .EQU BIT(ControlFlags,0)
+# _cmdDisableFeedIn .EQU BIT(ControlFlags,1)
+# _cmdDoNotFeedInOvervoltage .EQU BIT(ControlFlags,2)
+# _cmdDisablePVInverters .EQU BIT(ControlFlags,3)
+# _cmdSetpointIsMaxFeedIn .EQU BIT(ControlFlags,4)
+# _cmdSolarOffsetFixedTo100mV .EQU BIT(ControlFlags,5)
+# _infSustain .EQU BIT(ControlFlags,8)
+
+# _infHighTemperature .EQU BIT(ControlFlags,10)
+# _infSolarOffsetActive .EQU BIT(ControlFlags,11)
+# _infFreqvariationDetected .EQU BIT(ControlFlags,12)
+
+# IAmMasterNow:
+#  .IF bsiPossibleChargeMaster
+#  MOV AssistantIdentifier,#0x0054
+#  .ELSE
+#  MOV AssistantIdentifier,#0x0052
+#  .ENDIF
+#  JPZ Initialised
+
+#  MOV FreqVariationLimit,#cFreqVariationLimit
+#  MOV FreqVariationDelta,#cFreqVariationDelta
+#  MOV _MaxIMainsUsedAsWattSetpoint,#1
+#  MOV _UseMaxIMainsFeedInLimit,#0
+#  MOV MaxIBatWhenChgDue2Sustain#0,#50
+#  .IFDEF MaximumPowerTowardsGrid
+#  MOV AssistantIdentifier2,#0x00A1
+#  MOV MaximumPowerTowardsGrid,#0x7FFF
+#  .ENDIF
+#  MOV _PowerAssistWithFeedIn,#1
+#  MOV _FeedInEnabled,#1
+
 
             data = struct.pack("<BBBhB", 0x37, 0x00, self.ess_setpoint_ram_id+1, ess_flag, phase)  # cmd, flags, id, power
             self.send_frame('x', data)
@@ -590,7 +623,7 @@ class VEBus:
                 ram = rx[4] + rx[5] * 256  # value at ramid
                 self.log.debug("scan_ess_assistant ramid={} value=0x{:04X}".format(ramid, ram))
                 if ram & 0xFFF0 == 0x0050:  # ESS Assistant
-                    self.log.info("found ess assistant at ramid={}".format(ramid))
+                    self.log.info("found ess assistant at ramid={}, value=0x{:04X}".format(ramid, ram))
                     self.ess_setpoint_ram_id = ramid + 1
                     return True
                 else:
