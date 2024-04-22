@@ -180,7 +180,7 @@ class SetPoint:
         self.mp2_device_state_name=data.get('device_state_name',None)
         victron_ok=False
 
-        if not self.last_bms_soc_data or time.time()-self.last_bms_soc_data > 60:  # last bms data older than 5 minutes
+        if not self.last_bms_soc_data or time.time()-self.last_bms_soc_data > 60*5:  # last bms data older than 5 minutes
             self.bms_soc=data.get('soc',0)
             log.debug(f"no bms data, use mp2 data {self.bms_soc}")
 
@@ -288,6 +288,17 @@ class SetPoint:
         pprint.pprint(accumulated_data)
 
         rc=self.mqtt_client.publish(self.config['VICTRON']['topic'], json.dumps(accumulated_data))
+
+        # update bms data
+        if self.bms_soc and time.time()-self.last_bms_soc_data < 10:  # last bms data newer than 10 seconds
+            if abs(self.bms_soc - data.get('soc',0)) > 0.2:
+                log.warning(f"bms soc {self.bms_soc} and victron soc {data.get('soc',0)} differ more than 0.2")
+                #        soc=72
+                try:
+                    self.vebus.write_ram_var(vebus_constants.RAM_IDS['ChargeState'], 
+                                         vebus_constants.RAM_IDS_write.get('ChargeState', lambda x: x)(self.bms_soc), phase=self.current_phase)
+                except Exception as ex:
+                    log.error(f"unable to write soc for phase {self.current_phase} to {self.bms_soc}", exc_info=True)
 
         self.current_phase = self.current_phase + 1 if self.current_phase < self.phases else 1
 
