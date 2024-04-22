@@ -290,7 +290,7 @@ class SetPoint:
         rc=self.mqtt_client.publish(self.config['VICTRON']['topic'], json.dumps(accumulated_data))
 
         # update bms data
-        if self.bms_soc and time.time()-self.last_bms_soc_data < 10:  # last bms data newer than 10 seconds
+        if self.bms_soc and self.last_bms_soc_data and time.time()-self.last_bms_soc_data < 10:  # last bms data newer than 10 seconds
             if abs(self.bms_soc - data.get('soc',0)) > 0.2:
                 log.warning(f"bms soc {self.bms_soc} and victron soc {data.get('soc',0)} differ more than 0.2 {abs(self.bms_soc - data.get('soc',0))} ")
                 #        soc=72
