@@ -87,7 +87,7 @@ RAM_IDS_scale = {
 
 
 RAM_IDS_write= {
-    "ChargeState": lambda x: int(x * 2),
+    "ChargeState": lambda x: int(x * 2 + 0.5),      # round to nearest integer
 }
 
 
