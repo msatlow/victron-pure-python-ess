@@ -292,13 +292,15 @@ class SetPoint:
         # update bms data
         if self.bms_soc and time.time()-self.last_bms_soc_data < 10:  # last bms data newer than 10 seconds
             if abs(self.bms_soc - data.get('soc',0)) > 0.2:
-                log.warning(f"bms soc {self.bms_soc} and victron soc {data.get('soc',0)} differ more than 0.2")
+                log.warning(f"bms soc {self.bms_soc} and victron soc {data.get('soc',0)} differ more than 0.2 {abs(self.bms_soc - data.get('soc',0))} ")
                 #        soc=72
                 try:
                     self.vebus.write_ram_var(vebus_constants.RAM_IDS['ChargeState'], 
                                          vebus_constants.RAM_IDS_write.get('ChargeState', lambda x: x)(self.bms_soc), phase=self.current_phase)
                 except Exception as ex:
                     log.error(f"unable to write soc for phase {self.current_phase} to {self.bms_soc}", exc_info=True)
+            else:
+                log.debug(f"soc diff {abs(self.bms_soc - data.get('soc',0))}")
 
         self.current_phase = self.current_phase + 1 if self.current_phase < self.phases else 1
 
