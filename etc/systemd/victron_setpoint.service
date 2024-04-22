@@ -1,0 +1,17 @@
+[Unit]
+Description=Victron Setpoint Ordi
+After=multi-user.target
+
+[Service]
+Type=simple
+Restart=always
+ExecStart=/usr/bin/python3 /home/msatlow/update_setpoint.py --config config_ordi.ini
+WorkingDirectory=/home/msatlow
+RestartSec=10
+StandardOutput=null
+StandardError=journal
+
+ExecReload=/usr/bin/kill -HUP $MAINPID
+
+[Install]
+WantedBy=multi-user.target
