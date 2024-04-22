@@ -651,7 +651,10 @@ class VEBus:
         return False
 
     def format_hex(self, data):
-        return " ".join(["{:02X}".format(b) for b in data])
+        if data:
+            return " ".join(["{:02X}".format(b) for b in data])
+        else: 
+            return "None"
 
     def send_frame(self, cmd, data):
         frame = self.build_frame(cmd, data)
