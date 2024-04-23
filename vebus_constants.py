@@ -71,7 +71,7 @@ RAM_IDS_scale = {
     "IBat": lambda x: round(x * 0.1, 2),
     "UBatRMS": lambda x: round(x * 0.01, 2),
     "InverterPeriodTime": lambda x: (x+256) * 0.0000510,
-    "MainsPeriodTime": lambda x: 1/ (x * 0.0001024),
+    "MainsPeriodTime": lambda x: 1/ (x * 0.001024),
     "SignedACLoadCurrent": lambda x: x * 0.01,
     "VirtualSwitchPosition": lambda x: x & 0x8,
     "IgnoreACInputState":  lambda x: x & 0x01,
