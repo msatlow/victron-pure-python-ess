@@ -162,7 +162,7 @@ class VEBus:
                 'phase_info': phase_info,
                 'phase_info_name': vebus_constants.PHASE_INFO_invers.get(phase_info, f"unknown_{phase_info}"),
                 'mains_period': mains_period,
-                'mains_period_hz': 1.0/(mains_period*0.0001024) if mains_period else 0,
+                'mains_period_hz': round(1.0/(mains_period*0.0001024)-0.08,2) if mains_period else 0,
                 'mains_u': round(mains_u / 100, 2),
                 'mains_i': round(mains_i / 100, 2),
                 'mains_p_calc': round(mains_u / 100 * mains_i / 100),
