@@ -188,10 +188,6 @@ class SetPoint:
             self.avg10_sm_power=self.avg10_sm_power*0.9+sm_power*0.1
 
         data=self.get_data()
-        data['sm_power']=sm_power
-        data['avg100_sm_power']=self.avg100_sm_power
-        data['avg10_sm_power']=self.avg10_sm_power
-
 
         self.mp2_device_state_name=data.get('device_state_name',None)
         victron_ok=False
@@ -299,6 +295,10 @@ class SetPoint:
                 accumulated_data[key]=sum([self.phase_dict[phase].get(key,0) for phase in range(1,len(self.phase_dict)+1)])
             else:
                 accumulated_data[key]=value
+
+        accumulated_data['sm_power']=sm_power
+        accumulated_data['avg100_sm_power']=self.avg100_sm_power
+        accumulated_data['avg10_sm_power']=self.avg10_sm_power
 
         print("accumulated data")
         pprint.pprint(accumulated_data)
