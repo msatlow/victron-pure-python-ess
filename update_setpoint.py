@@ -53,6 +53,8 @@ class SetPoint:
         self.mppt_power=0
         self.last_mppt_power=None
         self.counter=0
+        self.avg100_sm_power=None
+        self.avg10_sm_power=None
 
         ac_info=self.vebus.get_ac_info(phase=1)  # trigger first ac info
         if ac_info:
@@ -175,7 +177,21 @@ class SetPoint:
         # if not self.mp2:
         #     log.error("no mp2")
         #     return
+        if self.avg100_sm_power==None:
+            self.avg100_sm_power=sm_power
+        else:
+            self.avg100_sm_power=self.avg100_sm_power*0.99+sm_power*0.01
+
+        if self.avg10_sm_power==None:
+            self.avg10_sm_power=sm_power
+        else:
+            self.avg10_sm_power=self.avg10_sm_power*0.9+sm_power*0.1
+
         data=self.get_data()
+        data['sm_power']=sm_power
+        data['avg100_sm_power']=self.avg100_sm_power
+        data['avg10_sm_power']=self.avg10_sm_power
+
 
         self.mp2_device_state_name=data.get('device_state_name',None)
         victron_ok=False
