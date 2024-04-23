@@ -207,7 +207,7 @@ class SetPoint:
         if abs(self.mp2_power)>100:
             self.mp2_power=int(self.mp2_power+(sm_power*0.3))
         else:
-            self.mp2_power=int(self.mp2_power+(sm_power*0.1))
+            self.mp2_power=int(self.mp2_power+(self.avg10_sm_power*0.1))
 
         
         # limit increase/decrease to 400W (MAX_VICTRON_RAMP)
