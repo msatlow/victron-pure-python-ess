@@ -220,8 +220,10 @@ class SetPoint:
         log.info(f"mp2_power={self.mp2_power}, old: {self.mp2_power_old} sum: {sm_power}, cur_phase: {self.current_phase}")
         
         if self.mp2_power>self.get_max_charge():
+            logging.info(f"mp2_power {self.mp2_power} > max_charge {self.get_max_charge()}")
             self.mp2_power=self.get_max_charge()
         if self.mp2_power< -1* self.get_max_invert():
+            logging.info(f"mp2_power {self.mp2_power} < max_invert {self.get_max_invert()}")
             self.mp2_power=-1* self.get_max_invert()
 
         if self.mp2_standby and self.mp2_power>0 and sm_power < -50:
