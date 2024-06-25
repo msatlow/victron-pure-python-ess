@@ -41,6 +41,7 @@ import configparser
 #from Crypto.Cipher import AES
 from Cryptodome.Cipher import AES
 import argparse
+import re
 
 
 ##CRC-STUFF BEGIN
@@ -184,7 +185,7 @@ config.read(args.config)
 key=config['SMARTMETER']['aes_key']
 device=config['SMARTMETER']['country_code']
 
-client = mqtt.Client("smartmeter")
+client = mqtt.Client(f"smartmeter_{re.sub(r'[^a-zA-Z0-9]','_', config['SMARTMETER']['serial_port'])}")
 
 if config['MQTT'].get('user'):
     client.username_pw_set(config['MQTT']['user'], config['MQTT']['password'])
