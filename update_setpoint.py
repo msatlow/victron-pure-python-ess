@@ -71,6 +71,10 @@ class SetPoint:
             logging.fatal("Unable to detect phase info")           
             exit(1)
 
+        # disable feed in overvoltage
+        for phase in range(1,self.phases+1):
+            self.vebus.set_ess_modules(phase=phase, do_not_feed_in_overvoltage=True)
+
         if self.online and self.sd_notify.enabled():
             self.sd_notify.status(f"VE Bus online, {self.phases} phases detected")
             self.sd_notify.ready()
@@ -217,7 +221,7 @@ class SetPoint:
         if self.mp2_power<self.mp2_power_old-MAX_VICTRON_RAMP:
             self.mp2_power=self.mp2_power_old-MAX_VICTRON_RAMP
 
-        log.info(f"mp2_power={self.mp2_power}, old: {self.mp2_power_old} sum: {sm_power}, cur_phase: {self.current_phase}")
+        log.info(f"mp2_power={self.mp2_power}, old: {self.mp2_power_old} Smartmeter: {sm_power}, cur_phase: {self.current_phase}")
         
         if self.mp2_power>self.get_max_charge():
             logging.info(f"mp2_power {self.mp2_power} > max_charge {self.get_max_charge()}")
@@ -363,6 +367,15 @@ class SetPoint:
 
     def fetch_data(self):
 
+        ess=self.vebus.get_ess_modules(phase=1)
+        # self.vebus.set_ess_modules(phase=1, do_not_feed_in_overvoltage=True)
+        # self.vebus.set_ess_modules(phase=1, solar_offset_is_fixed_to_100mV=True)
+        # self.vebus.set_ess_modules(phase=1, do_not_feed_in_overvoltage=False)
+
+
+#        self.vebus.set_ess_modules(disable_feed=False, disable_charge=False, do_not_feed_in_overvoltage=True, phase=1)
+#        return
+
 #        infos=self.get_ram_var_infos()
 
         phase_dict={1:{}, 2:{}, 3:{}}
@@ -432,7 +445,10 @@ class SetPoint:
 
 
         if self.mqtt_client:
-            self.mqtt_client.publish(self.config['VICTRON']['fetch_data_topic'], json.dumps(phase_dict))
+            try:
+                self.mqtt_client.publish(self.config['VICTRON']['fetch_data_topic'], json.dumps(phase_dict))
+            except Exception as ex:
+                log.error(f"unable to publish data", exc_info=True)
 
 # #        ret = self.vebus.set_power_3p(100,100,100)
         # print(self.vebus.set_power_phase(0,1))
@@ -441,7 +457,7 @@ class SetPoint:
 
       #  self.vebus.reset_device(0)
 
-#        self.vebus.set_ess_modules(disable_feed=True, disable_charge=True, phase=1)
+#        self.vebus.set_ess_modules(disable_feed=True, disable_charge=True, do_not_feed_in_overvoltage=True, phase=1)
 
         pprint.pprint(phase_dict)
 
@@ -663,6 +679,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", help="config.ini file", default="config.ini")
     parser.add_argument("--dump", help="dump option", action="store_true")
+    parser.add_argument("--reset", help="reset multiplus", action="store_true")
     args = parser.parse_args()
     config_file=args.config
 
@@ -704,7 +721,11 @@ def main():
     signal.signal(signal.SIGHUP, signal_hub_handler)
 
     if args.dump:
-        set_point_class.fech_data()
+        set_point_class.fetch_data()
+        return None
+    
+    if args.reset:
+        set_point_class.vebus.reset_device()
         return None
 
     log.info("start loop")
