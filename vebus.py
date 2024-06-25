@@ -1,3 +1,5 @@
+from __future__ import annotations  #   for python 3.7, default behavior in python 3.13
+
 import logging
 import struct
 import time
@@ -543,16 +545,37 @@ class VEBus:
         else:
             self.log.error(f"set_switch failed {rx}")
 
-    def set_ess_modules(self, disable_feed: bool, disable_charge: bool, phase: int):
+    def set_bit(self, value: int, bit: int, set_unset:bool):
+        if set_unset:
+            value |= 1 << bit
+        else:
+            value &= ~(1 << bit)
+
+        return value
+
+
+    def set_ess_modules(self, phase: int, disable_feed: bool|None=None, disable_charge: bool|None = None, do_not_feed_in_overvoltage: bool|None=None,
+                        disable_pv_inverters: bool|None=None, setpoint_is_max_feedin:bool|None=None, 
+                        solar_offset_is_fixed_to_100mV: bool|None=None):
         if self.serial is None:
             self.open_port()  # open port
 
+        ess_flag=self.get_ess_modules(phase)
+
         try:
-            ess_flag=0
-            if disable_charge:
-                ess_flag+=0x1
-            if disable_feed:
-                ess_flag+=0x2
+            if disable_charge is not None:
+                ess_flag = self.set_bit(ess_flag, 0, disable_charge)
+            if disable_feed is not None:
+                ess_flag = self.set_bit(ess_flag, 1, disable_feed)
+            if do_not_feed_in_overvoltage  is not None:
+                ess_flag = self.set_bit(ess_flag, 2, do_not_feed_in_overvoltage)
+            if disable_pv_inverters is not None:
+                ess_flag = self.set_bit(ess_flag, 3, disable_pv_inverters)
+            if setpoint_is_max_feedin  is not None:
+                ess_flag = self.set_bit(ess_flag, 4, setpoint_is_max_feedin)
+            if solar_offset_is_fixed_to_100mV  is not None:
+                ess_flag = self.set_bit(ess_flag, 5, solar_offset_is_fixed_to_100mV)
+
 # Description of the flags - copy of the source code
 # _cmdDisableCharge .EQU BIT(ControlFlags,0)
 # _cmdDisableFeedIn .EQU BIT(ControlFlags,1)
@@ -587,14 +610,14 @@ class VEBus:
 #  MOV _FeedInEnabled,#1
 
 
-            data = struct.pack("<BBBhB", 0x37, 0x00, self.ess_setpoint_ram_id+1, ess_flag, phase)  # cmd, flags, id, power
+            data = struct.pack("<BBBhB", 0x37, 0x00, self.ess_setpoint_ram_id+1, ess_flag, phase-1)  # cmd, flags, id, power
             self.send_frame('x', data)
             rx = self.receive_frame([b'\x05\xFF\x58', b'\x03\xFF\x58'])  # two different answers are possible
             if rx[3] == 0x87:
-                self.log.info("set_ess_modules to {}W done".format(ess_flag))
+                self.log.info("set_ess_modules to {} done".format(ess_flag))
                 return True
             else:
-                self.log.error("set_ess_modules to {}W done".format(ess_flag))
+                self.log.error("set_ess_modules to {} done".format(ess_flag))
 
 #                raise Exception("invalid response")
         except IOError:
@@ -605,7 +628,31 @@ class VEBus:
             return False
 
 
+    def get_ess_modules(self, phase: int=1):
+        ess_flag=0
+        try:
+            if self.serial is None:
+                self.open_port()  # open port
 
+            data = struct.pack("<BH", 0x30, self.ess_setpoint_ram_id+1)  # read ram id
+            self.send_frame('X', data)
+            rx = self.receive_frame(b'\x07\xFF\x58')
+            ram = rx[4] + rx[5] * 256  # value at ramid
+            logging.info(f"get_ess_modules ramid={self.ess_setpoint_ram_id+1} value=0x{ram:04X}")
+            ess_flag=ram
+
+    #                raise Exception("invalid response")
+        except IOError:
+            self.serial = None
+            self.log.error("serial port failed")
+        except Exception as e:
+            self.log.error("set_ess_modules: error={}".format(e))
+
+        return ess_flag
+
+
+    
+    
     def scan_ess_assistant(self):
         """
         Scan through assistants for ESS
