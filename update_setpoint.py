@@ -19,6 +19,7 @@ import pprint
 import sd_notify    # systemd notification for watchdog
 import vebus_constants
 from vebus import VEBus
+import re
 
 
 log = logging.getLogger(__name__)
@@ -254,7 +255,7 @@ class SetPoint:
         
         if self.mp2_power>0:
             max_soc_hyst=float(self.config['VICTRON']['MAX_SOC']) + (float(self.config['VICTRON']['SOC_HYSTERESIS']) if self.mp2_charge else 0)
-            if self.bms_soc < max_soc_hyst:
+            if self.bms_soc <= max_soc_hyst:
                 log.info(f"wakeup and set power {self.mp2_power}")
                 set_power_ok=self.set_mp2_setpoint(int(self.mp2_power), standby=False)
             else:
@@ -262,7 +263,7 @@ class SetPoint:
                 set_power_ok=self.set_mp2_setpoint(0, standby=False)
         else:
             min_soc_hyst = float(self.config['VICTRON']['MIN_SOC']) - (float(self.config['VICTRON']['SOC_HYSTERESIS']) if self.mp2_invert else 0)
-            if self.bms_soc > min_soc_hyst :
+            if self.bms_soc >= min_soc_hyst :
                 log.info(f"set power {self.mp2_power}")
 
                 set_power_ok=self.set_mp2_setpoint(int(self.mp2_power))
@@ -661,7 +662,7 @@ def main():
 
     read_config()
 
-    mqtt_client = mqtt.Client("UPDATE_SETPOINT")
+    mqtt_client = mqtt.Client(f"UPDATE_SETPOINT_{re.sub(r"[^a-zA-Z0-9]","_", config['VICTRON']['serial_port'])}")
     set_point_class=SetPoint(mqtt_client, config)
 
     if config['MQTT'].get('user'):
