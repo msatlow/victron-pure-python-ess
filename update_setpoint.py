@@ -662,7 +662,7 @@ def main():
 
     read_config()
 
-    mqtt_client = mqtt.Client(f"UPDATE_SETPOINT_{re.sub(r"[^a-zA-Z0-9]","_", config['VICTRON']['serial_port'])}")
+    mqtt_client = mqtt.Client(f"UPDATE_SETPOINT_{re.sub(r'[^a-zA-Z0-9]','_', config['VICTRON']['serial_port'])}")
     set_point_class=SetPoint(mqtt_client, config)
 
     if config['MQTT'].get('user'):
