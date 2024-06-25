@@ -338,7 +338,11 @@ class SetPoint:
             log.warning("victron not ok")
 
     def touch_file(self):
-        f = open("watchdog.txt", "w")
+        global config_file
+        if config_file and config_file != "config.ini":
+            f = open(f"watchdog_{ re.sub(r'[^a-zA-Z0-9]','_', config_file)}.txt", "w")
+        else:
+            f = open("watchdog.txt", "w")
         f.write(f"Watchdog on {datetime.datetime.now()}")
         f.close()
         log.debug("touch watchdog.txt")
