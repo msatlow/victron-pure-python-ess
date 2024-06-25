@@ -429,11 +429,11 @@ class VEBus:
             self.log.error("set_ess_power: power={} error={}".format(power, e))
             return False
 
-    def set_power_phase(self, power, phase):
+    def set_power_phase(self, power, phase) -> bool:
         if self.serial is None:
             self.open_port()  # open port
 
-        self.log.info(f"set_power_phase {power} {phase}")
+        self.log.info(f"set_power_phase power={power} phase={phase}")
 
         assert self.ess_setpoint_ram_id is not None
         try:
