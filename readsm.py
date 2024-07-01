@@ -181,11 +181,13 @@ parser.add_argument("--config", help="config.ini file", default="config.ini")
 args = parser.parse_args()
 
 config = configparser.ConfigParser()
+print(f"read config file {args.config}")
 config.read(args.config)
 key=config['SMARTMETER']['aes_key']
+print(f"Key: {key}")
 device=config['SMARTMETER']['country_code']
 
-client = mqtt.Client(f"smartmeter_{re.sub(r'[^a-zA-Z0-9]','_', config['SMARTMETER']['serial_port'])}")
+client = mqtt.Client(f"UPDATE_SETPOINT_{re.sub(r'[^a-zA-Z0-9]','_', config['SMARTMETER']['serial_port'])}")
 
 if config['MQTT'].get('user'):
     client.username_pw_set(config['MQTT']['user'], config['MQTT']['password'])
@@ -193,7 +195,7 @@ client.connect(config['MQTT']['host'], int(config['MQTT']['port']))
 client.loop_start()
 
 while 1:
-    print("opening serial interface")
+    print(f"opening serial interface {config['SMARTMETER']['serial_port']}")
     try:
         ser=serial.Serial(config['SMARTMETER']['serial_port'], baudrate=int(config['SMARTMETER']['serial_baudrate']), timeout=1)
     #ser=serial.Serial("/dev/ttyACM0",baudrate=115200)
@@ -206,6 +208,7 @@ while 1:
             junk2=ser.read_until(expected=b'\xa0')
         
             data=ser.read(119)
+#            print(data)
         
             data2=b'\x7e\xa0'+data+b'\x7e'
             dec=decode_packet(data2)
@@ -213,6 +216,7 @@ while 1:
             print(s)
   
             (sin, sout, pin, pout)=get_data(dec)
+
             data={
                 "power_in": pin,
                 "power_out": pout,
@@ -223,20 +227,11 @@ while 1:
                 "total_unit": "KWh",
             }
             print(data)
-            rc=client.publish(config['SMARTMETER']['TOPIC'], json.dumps(data))
+            if abs(pin-pout)<10000:
+                rc=client.publish(config['SMARTMETER']['TOPIC'], json.dumps(data))
+            else:
+                print(f"data wrong {pin}  {pout}")
             print(rc)
-            dspl = {"title": "Smartmeter",
-                    "color": 24555,
-                    "main": {"unit": "W",
-                        "PwrSM": data["power"]
-                        },
-                    "stand": {
-                        "unit": "KWh",
-                        "In": "{:.1f}".format(data["sum_in"]),
-                        "Out": "{:.1f}".format(data["sum_out"])
-                        }
-                    }
-            client.publish("display", json.dumps(dspl))
 
     except Exception as ex:
         print(ex)
