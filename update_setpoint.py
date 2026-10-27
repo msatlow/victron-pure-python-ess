@@ -2,6 +2,7 @@
 
 import serial
 import paho.mqtt.client as mqtt
+import mqtt_compat
 import json
 from multiplus2 import MultiPlus2
 import time
@@ -689,7 +690,7 @@ def main():
 
     read_config()
 
-    mqtt_client = mqtt.Client(f"UPDATE_SETPOINT_{re.sub(r'[^a-zA-Z0-9]','_', config['VICTRON']['serial_port'])}")
+    mqtt_client = mqtt_compat.create_client(f"UPDATE_SETPOINT_{re.sub(r'[^a-zA-Z0-9]','_', config['VICTRON']['serial_port'])}")
     set_point_class=SetPoint(mqtt_client, config)
 
     if config['MQTT'].get('user'):

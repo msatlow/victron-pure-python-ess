@@ -1,6 +1,7 @@
 import struct
 import serial
 import paho.mqtt.client as mqtt
+import mqtt_compat
 import json
 import time
 import configparser
@@ -38,7 +39,7 @@ def read_and_send(shelf):
     try:
         ser=serial.Serial(config['BMS1']['serial_port'], baudrate=int(config['BMS1']['serial_baudrate']), timeout=1)
 
-        client = mqtt.Client("BMS1")
+        client = mqtt_compat.create_client("BMS1")
 
         if config['MQTT'].get('user'):
             client.username_pw_set(config['MQTT']['user'], config['MQTT']['password'])

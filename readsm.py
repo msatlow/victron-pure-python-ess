@@ -36,6 +36,7 @@
 import binascii
 import serial
 import paho.mqtt.client as mqtt
+import mqtt_compat
 import json
 import configparser
 #from Crypto.Cipher import AES
@@ -186,7 +187,7 @@ config.read(args.config)
 key=config['SMARTMETER']['aes_key']
 device=config['SMARTMETER']['country_code']
 
-client = mqtt.Client(f"SMARTMETER_{re.sub(r'[^a-zA-Z0-9]','_', config['SMARTMETER']['serial_port'])}")
+client = mqtt_compat.create_client(f"SMARTMETER_{re.sub(r'[^a-zA-Z0-9]','_', config['SMARTMETER']['serial_port'])}")
 
 if config['MQTT'].get('user'):
     client.username_pw_set(config['MQTT']['user'], config['MQTT']['password'])

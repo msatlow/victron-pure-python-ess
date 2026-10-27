@@ -5,6 +5,7 @@
 
 import argparse, os
 import paho.mqtt.client as mqtt
+import mqtt_compat
 from vedirect import VEDirect
 import logging
 import configparser
@@ -48,7 +49,7 @@ def main():
 
 
 
-    client = mqtt.Client(f"MPPT_{args.config}")
+    client = mqtt_compat.create_client(f"MPPT_{args.config}")
     if config['MQTT'].get('user'):
         print("mqtt password given")
         client.username_pw_set(config['MQTT']['user'], config['MQTT']['password'])
