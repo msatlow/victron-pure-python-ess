@@ -116,10 +116,6 @@ class SetPoint:
             if not self.battery_empty_ts:
                 self.battery_empty_ts=time.time()
 
-            # stop discharging, otherwise the last setpoint stays active
-            if not self.mp2_standby:
-                ret=self.vebus.set_power_phase(0, phase=self.current_phase)
-
             if self.config.getboolean('VICTRON','sleep_enabled', fallback=False):
                 if self.battery_empty_ts and time.time()-self.battery_empty_ts > self.config.getint('VICTRON','SLEEP_TIMEOUT', fallback=3600):
                     log.warning("battery empty for 5 minutes, go to standby")
