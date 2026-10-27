@@ -561,6 +561,10 @@ class VEBus:
             self.open_port()  # open port
 
         ess_flag=self.get_ess_modules(phase)
+        if ess_flag is None:
+            # never write without current value, other flags would be cleared
+            self.log.error("set_ess_modules: unable to read current flags, nothing written")
+            return False
 
         try:
             if disable_charge is not None:
@@ -617,7 +621,8 @@ class VEBus:
                 self.log.info("set_ess_modules to {} done".format(ess_flag))
                 return True
             else:
-                self.log.error("set_ess_modules to {} done".format(ess_flag))
+                self.log.error("set_ess_modules to {} failed".format(ess_flag))
+                return False
 
 #                raise Exception("invalid response")
         except IOError:
@@ -628,8 +633,9 @@ class VEBus:
             return False
 
 
-    def get_ess_modules(self, phase: int=1):
-        ess_flag=0
+    def get_ess_modules(self, phase: int=1) -> int|None:
+        """ returns the ESS control flags, None if they could not be read """
+        ess_flag=None
         try:
             if self.serial is None:
                 self.open_port()  # open port
@@ -638,7 +644,7 @@ class VEBus:
             self.send_frame('X', data)
             rx = self.receive_frame(b'\x07\xFF\x58')
             ram = rx[4] + rx[5] * 256  # value at ramid
-            logging.info(f"get_ess_modules ramid={self.ess_setpoint_ram_id+1} value=0x{ram:04X}")
+            self.log.info(f"get_ess_modules ramid={self.ess_setpoint_ram_id+1} value=0x{ram:04X}")
             ess_flag=ram
 
     #                raise Exception("invalid response")
@@ -646,7 +652,7 @@ class VEBus:
             self.serial = None
             self.log.error("serial port failed")
         except Exception as e:
-            self.log.error("set_ess_modules: error={}".format(e))
+            self.log.error("get_ess_modules: error={}".format(e))
 
         return ess_flag
 

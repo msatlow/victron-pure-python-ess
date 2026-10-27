@@ -184,10 +184,9 @@ config = configparser.ConfigParser()
 print(f"read config file {args.config}")
 config.read(args.config)
 key=config['SMARTMETER']['aes_key']
-print(f"Key: {key}")
 device=config['SMARTMETER']['country_code']
 
-client = mqtt.Client(f"UPDATE_SETPOINT_{re.sub(r'[^a-zA-Z0-9]','_', config['SMARTMETER']['serial_port'])}")
+client = mqtt.Client(f"SMARTMETER_{re.sub(r'[^a-zA-Z0-9]','_', config['SMARTMETER']['serial_port'])}")
 
 if config['MQTT'].get('user'):
     client.username_pw_set(config['MQTT']['user'], config['MQTT']['password'])
